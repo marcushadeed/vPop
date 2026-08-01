@@ -13,18 +13,24 @@ from googleapiclient.http import MediaIoBaseDownload
 
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-SECRETS_DIR = REPO_ROOT / "secrets"
-CREDENTIALS_PATH = SECRETS_DIR / "credentials.json"
-TOKEN_PATH = SECRETS_DIR / "token.json"
+_SRC_DIR = Path(__file__).resolve().parents[2]
+_PATHS_FILE = _SRC_DIR / "paths.py"
+_spec = importlib.util.spec_from_file_location("paths", _PATHS_FILE)
+assert _spec is not None and _spec.loader is not None
+_paths = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_paths)
+CREDENTIALS_PATH = _paths.CREDENTIALS_PATH
+TOKEN_PATH = _paths.TOKEN_PATH
 
 _DATA_PATHS_FILE = (
     Path(__file__).resolve().parents[1] / "file-management" / "data-paths.py"
 )
-_spec = importlib.util.spec_from_file_location("data_paths", _DATA_PATHS_FILE)
-assert _spec is not None and _spec.loader is not None
-_data_paths = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_data_paths)
+_data_paths_spec = importlib.util.spec_from_file_location(
+    "data_paths", _DATA_PATHS_FILE
+)
+assert _data_paths_spec is not None and _data_paths_spec.loader is not None
+_data_paths = importlib.util.module_from_spec(_data_paths_spec)
+_data_paths_spec.loader.exec_module(_data_paths)
 android_messages_raw_dir = _data_paths.android_messages_raw_dir
 
 
