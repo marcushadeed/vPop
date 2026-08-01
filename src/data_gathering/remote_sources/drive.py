@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib.util
 from pathlib import Path
 
 from google.auth.transport.requests import Request
@@ -11,27 +10,11 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
+from data_gathering.file_management.data_paths import android_messages_raw_dir
+from paths import OAUTH_CREDENTIALS_PATH as CREDENTIALS_PATH
+from paths import TOKEN_PATH
+
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
-
-_SRC_DIR = Path(__file__).resolve().parents[2]
-_PATHS_FILE = _SRC_DIR / "paths.py"
-_spec = importlib.util.spec_from_file_location("paths", _PATHS_FILE)
-assert _spec is not None and _spec.loader is not None
-_paths = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_paths)
-CREDENTIALS_PATH = _paths.CREDENTIALS_PATH
-TOKEN_PATH = _paths.TOKEN_PATH
-
-_DATA_PATHS_FILE = (
-    Path(__file__).resolve().parents[1] / "file-management" / "data-paths.py"
-)
-_data_paths_spec = importlib.util.spec_from_file_location(
-    "data_paths", _DATA_PATHS_FILE
-)
-assert _data_paths_spec is not None and _data_paths_spec.loader is not None
-_data_paths = importlib.util.module_from_spec(_data_paths_spec)
-_data_paths_spec.loader.exec_module(_data_paths)
-android_messages_raw_dir = _data_paths.android_messages_raw_dir
 
 
 def get_drive_service():

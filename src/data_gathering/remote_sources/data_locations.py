@@ -2,16 +2,10 @@
 
 from __future__ import annotations
 
-import importlib.util
 import os
 from pathlib import Path
 
-_PATHS_FILE = Path(__file__).resolve().parents[2] / "paths.py"
-_spec = importlib.util.spec_from_file_location("paths", _PATHS_FILE)
-assert _spec is not None and _spec.loader is not None
-_paths = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_paths)
-REMOTE_DATA_LOCATIONS_ENV = _paths.REMOTE_DATA_LOCATIONS_ENV
+from paths import REMOTE_DATA_LOCATIONS_ENV
 
 
 def _load_env_file(path: Path) -> None:
