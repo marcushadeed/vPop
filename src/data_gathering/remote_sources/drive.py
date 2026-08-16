@@ -77,13 +77,11 @@ def download_file_by_name(
     service,
     folder_id: str,
     name: str,
-    *,
-    dest_dir: Path | None = None,
-) -> Path:
-    """Download a file by exact name from a Drive folder into local storage.
-
-    Defaults to ``~/.local/share/vpop/raw/android-messages`` (or XDG equivalent).
-    Raises ``FileNotFoundError`` if no match, ``ValueError`` if multiple match.
+    dest_dir: Path
+) -> bool:
+    """
+    Download a file by exact name from a Drive folder into local storage.
+    Returns True if the file was downloaded successfully, False otherwise.
     """
     query = (
         f"'{_escape_drive_query_value(folder_id)}' in parents "
@@ -102,21 +100,15 @@ def download_file_by_name(
     )
     matches = response.get("files", [])
     if not matches:
-        raise FileNotFoundError(f"No file named {name!r} in Drive folder {folder_id!r}")
+        return False
     if len(matches) > 1:
-        raise ValueError(
-            f"Multiple files named {name!r} in Drive folder {folder_id!r}; "
-            f"ids={[m['id'] for m in matches]}"
-        )
+        return False
 
     file_meta = matches[0]
     if file_meta.get("mimeType", "").startswith("application/vnd.google-apps."):
-        raise ValueError(
-            f"{name!r} is a Google Docs editor file ({file_meta['mimeType']}), "
-            "not a binary download. Export it first or pick a regular file."
-        )
+        return False
 
-    dest = (dest_dir or android_messages_raw_dir()) / name
+    dest = (dest_dir) / name
     dest.parent.mkdir(parents=True, exist_ok=True)
 
     request = service.files().get_media(fileId=file_meta["id"])
@@ -126,4 +118,4 @@ def download_file_by_name(
         while not done:
             _, done = downloader.next_chunk()
 
-    return dest
+    return True
