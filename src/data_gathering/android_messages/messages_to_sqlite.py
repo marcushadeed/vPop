@@ -3,6 +3,7 @@ This module is used to convert MMS and RCS messages from the Android Messages ap
 database.
 """
 
+import sqlite3
 from enum import Enum
 from typing import Generator, NamedTuple
 from lxml.etree import Element, iterparse
@@ -97,3 +98,40 @@ def messages_from_xml(file_path: str) -> Generator[Message, None, None]:
 
         # Clean up only if we've parsed the message
         elem.clear()
+
+
+def add_messages_to_sqlite(messages: Generator[Message, None, None], db_path: str):
+    """
+    Add a list of Message objects to a SQLite database. Creates the table if it doesn't exist.
+    """
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "CREATE TABLE IF NOT EXISTS messages "
+            "(id INTEGER PRIMARY KEY, direction TEXT, was_sent INTEGER, "
+            "contact_address TEXT, contact_name TEXT, body TEXT, timestamp TEXT)"
+        )
+        for message in messages:
+            cursor.execute(
+                "INSERT INTO messages "
+                "(direction, was_sent, contact_address, contact_name, body, timestamp) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    message.direction.value,
+                    message.was_sent,
+                    message.contact_address,
+                    message.contact_name,
+                    message.body,
+                    message.timestamp,
+                ),
+            )
+
+        conn.commit()
+
+
+def xml_to_sqlite(xml_path: str, db_path: str):
+    """
+    Convert an XML file to a SQLite database.
+    """
+    messages = messages_from_xml(xml_path)
+    add_messages_to_sqlite(messages, db_path)
