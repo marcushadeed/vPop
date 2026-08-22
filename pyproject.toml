@@ -25,3 +25,11 @@ py-modules = ["main", "paths"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[dependency-groups]
+dev = [
+    "lxml-stubs>=0.5.1",
+]
+
+[tool.pylint.main]
+extension-pkg-allow-list = ["lxml"]

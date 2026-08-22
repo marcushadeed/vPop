@@ -4,7 +4,7 @@ database.
 """
 
 from enum import Enum
-from typing import Any, Generator, NamedTuple
+from typing import Generator, NamedTuple
 from lxml.etree import Element, iterparse
 
 
