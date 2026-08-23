@@ -10,34 +10,36 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
-from data_gathering.file_management.data_paths import android_messages_raw_dir
-from paths import OAUTH_CREDENTIALS_PATH as CREDENTIALS_PATH
-from paths import TOKEN_PATH
+from paths import OAUTH_CREDENTIALS_PATH, OAUTH_TOKEN_PATH
 
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 
 
-def get_drive_service():
-    """Build an authenticated Drive API client using secrets/credentials.json."""
+def _get_credentials() -> Credentials:
+    """Load cached OAuth credentials, refreshing or requesting consent as needed."""
     creds = None
-    if TOKEN_PATH.exists():
-        creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
+    if OAUTH_TOKEN_PATH.exists():
+        creds = Credentials.from_authorized_user_file(str(OAUTH_TOKEN_PATH), SCOPES)
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            if not CREDENTIALS_PATH.exists():
-                raise FileNotFoundError(
-                    f"Missing OAuth client secrets at {CREDENTIALS_PATH}. "
-                    "Download credentials.json from Google Cloud Console and place it there."
-                )
-            flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_PATH, SCOPES)
+            flow = InstalledAppFlow.from_client_secrets_file(
+                str(OAUTH_CREDENTIALS_PATH), SCOPES
+            )
             creds = flow.run_local_server(port=0)
-        TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
-        TOKEN_PATH.write_text(creds.to_json())
 
-    return build("drive", "v3", credentials=creds)
+        OAUTH_TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
+        OAUTH_TOKEN_PATH.write_text(creds.to_json())
+
+    return creds
+
+
+def get_drive_service():
+    """Access the Drive API service with OAuth credentials."""
+
+    return build("drive", "v3", credentials=_get_credentials())
 
 
 def _escape_drive_query_value(value: str) -> str:
@@ -73,12 +75,7 @@ def list_folder_files(service, folder_id: str) -> list[dict]:
     return files
 
 
-def download_file_by_name(
-    service,
-    folder_id: str,
-    name: str,
-    dest_dir: Path
-) -> bool:
+def download_file_by_name(service, folder_id: str, name: str, dest_dir: Path) -> bool:
     """
     Download a file by exact name from a Drive folder into local storage.
     Returns True if the file was downloaded successfully, False otherwise.
