@@ -27,9 +27,10 @@ def _load_env_file(path: Path) -> None:
 
 _load_env_file(REMOTE_DATA_LOCATIONS_ENV)
 
-MESSAGES_BACKUP_FOLDER_ID = os.environ.get("MESSAGES_BACKUP_FOLDER_ID")
-if not MESSAGES_BACKUP_FOLDER_ID:
+_raw_messages_backup_folder_id = os.environ.get("MESSAGES_BACKUP_FOLDER_ID")
+if not _raw_messages_backup_folder_id:
     raise ValueError(
         "MESSAGES_BACKUP_FOLDER_ID is not set in "
         f"{REMOTE_DATA_LOCATIONS_ENV} or the environment."
     )
+MESSAGES_BACKUP_FOLDER_ID: str = _raw_messages_backup_folder_id

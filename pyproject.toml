@@ -33,3 +33,10 @@ dev = [
 
 [tool.pylint.main]
 extension-pkg-allow-list = ["lxml"]
+
+[tool.isort]
+profile = "black"
+
+[[tool.mypy.overrides]]
+module = ["google_auth_oauthlib.*", "googleapiclient.*"]
+ignore_missing_imports = true

@@ -1,10 +1,12 @@
+"""Download raw Android Messages XML backups from Drive."""
+
+from data_gathering.file_management.data_paths import android_messages_raw_dir
+from data_gathering.remote_sources.data_locations import MESSAGES_BACKUP_FOLDER_ID
 from data_gathering.remote_sources.drive import (
+    download_file_by_name,
     get_drive_service,
     list_folder_files,
-    download_file_by_name,
 )
-from data_gathering.remote_sources.data_locations import MESSAGES_BACKUP_FOLDER_ID
-from data_gathering.file_management.data_paths import android_messages_raw_dir
 
 
 def download_raw_xml() -> None:

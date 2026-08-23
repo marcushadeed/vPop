@@ -3,25 +3,28 @@ This module is used to convert MMS and RCS messages from the Android Messages ap
 database.
 """
 
-import sqlite3
 import hashlib
+import sqlite3
+from collections.abc import Generator
 from enum import Enum
-from typing import Generator, NamedTuple
-from lxml.etree import Element, iterparse
+from typing import NamedTuple
+
+from lxml.etree import _Element, iterparse
+
+
+class Direction(Enum):
+    """
+    Direction of the message.
+    """
+
+    INCOMING = "incoming"
+    OUTGOING = "outgoing"
 
 
 class Message(NamedTuple):
     """
     Platform-agnostic message. Mirrors SQLite message table schema.
     """
-
-    class Direction(Enum):
-        """
-        Direction of the message.
-        """
-
-        INCOMING = "incoming"
-        OUTGOING = "outgoing"
 
     direction: Direction
     was_sent: bool
@@ -42,56 +45,56 @@ class Message(NamedTuple):
                 f"{self.contact_name}"
                 f"{self.body}"
                 f"{self.timestamp}"
-            ).encode("utf-8")
+            ).encode()
         ).hexdigest()
 
 
-def mms_from_message(elem: Element) -> Message:
+def mms_from_message(elem: _Element) -> Message:
     """
     Parse an MMS message and return a Message object.
     """
-    contact_name = elem.get("contact_name")
-    timestamp = elem.get("readable_date")
-    contact_address = elem.get("address")
+    contact_name = elem.get("contact_name") or ""
+    timestamp = elem.get("readable_date") or ""
+    contact_address = elem.get("address") or ""
 
     message_type = elem.get("msg_box")
     if message_type == "1":
-        direction = Message.Direction.INCOMING
+        direction = Direction.INCOMING
         was_sent = True
     elif message_type == "2":
-        direction = Message.Direction.OUTGOING
+        direction = Direction.OUTGOING
         was_sent = True
     else:  # draft, outbox, etc.
-        direction = Message.Direction.INCOMING
+        direction = Direction.INCOMING
         was_sent = False
 
     body = ""
     for parts_list in elem.findall("parts"):
         for part in parts_list.findall("part"):
             if part.get("ct") == "text/plain":
-                body += part.get("text")
+                body += part.get("text") or ""
 
     return Message(direction, was_sent, contact_address, contact_name, body, timestamp)
 
 
-def sms_from_message(elem: Element) -> Message:
+def sms_from_message(elem: _Element) -> Message:
     """
     Parse an SMS message and return a Message object.
     """
-    contact_name = elem.get("contact_name")
-    timestamp = elem.get("readable_date")
-    contact_address = elem.get("address")
-    body = elem.get("body")
+    contact_name = elem.get("contact_name") or ""
+    timestamp = elem.get("readable_date") or ""
+    contact_address = elem.get("address") or ""
+    body = elem.get("body") or ""
 
     message_type = elem.get("type")
     if message_type == "1":
-        direction = Message.Direction.INCOMING
+        direction = Direction.INCOMING
         was_sent = True
     elif message_type == "2":
-        direction = Message.Direction.OUTGOING
+        direction = Direction.OUTGOING
         was_sent = True
     else:  # draft, outbox, etc.
-        direction = Message.Direction.INCOMING
+        direction = Direction.INCOMING
         was_sent = False
 
     return Message(direction, was_sent, contact_address, contact_name, body, timestamp)
