@@ -4,6 +4,7 @@ database.
 """
 
 import sqlite3
+import hashlib
 from enum import Enum
 from typing import Generator, NamedTuple
 from lxml.etree import Element, iterparse
@@ -28,6 +29,21 @@ class Message(NamedTuple):
     contact_name: str
     body: str
     timestamp: str
+
+    def hash(self) -> str:
+        """
+        Return a hash of the message.
+        """
+        return hashlib.sha256(
+            (
+                f"{self.direction.value}"
+                f"{self.was_sent}"
+                f"{self.contact_address}"
+                f"{self.contact_name}"
+                f"{self.body}"
+                f"{self.timestamp}"
+            ).encode("utf-8")
+        ).hexdigest()
 
 
 def mms_from_message(elem: Element) -> Message:
@@ -108,15 +124,17 @@ def add_messages_to_sqlite(messages: Generator[Message, None, None], db_path: st
         cursor = conn.cursor()
         cursor.execute(
             "CREATE TABLE IF NOT EXISTS messages "
-            "(id INTEGER PRIMARY KEY, direction TEXT, was_sent INTEGER, "
+            "(id TEXT PRIMARY KEY, direction TEXT, was_sent INTEGER, "
             "contact_address TEXT, contact_name TEXT, body TEXT, timestamp TEXT)"
         )
         for message in messages:
+            message_id = message.hash()
             cursor.execute(
-                "INSERT INTO messages "
-                "(direction, was_sent, contact_address, contact_name, body, timestamp) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT OR IGNORE INTO messages "
+                "(id, direction, was_sent, contact_address, contact_name, body, timestamp) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
+                    message_id,
                     message.direction.value,
                     message.was_sent,
                     message.contact_address,
