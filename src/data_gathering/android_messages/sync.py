@@ -13,4 +13,5 @@ def sync() -> None:
     Sync the messages table with the raw data.
     """
     download_raw_xml()
-    xml_to_sqlite(str(android_messages_raw_dir()), str(android_messages_db_path()))
+    for file in android_messages_raw_dir().glob("*.xml"):
+        xml_to_sqlite(str(file), str(android_messages_db_path()))
