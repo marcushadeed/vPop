@@ -1,10 +1,8 @@
 """Entry point for the vpop CLI."""
 
+from data_gathering.android_messages.sync import sync
+
 
 def main():
-    """Print a greeting."""
-    print("Hello from vpop!")
-
-
-if __name__ == "__main__":
-    main()
+    """Entry point for the vpop CLI."""
+    sync()
