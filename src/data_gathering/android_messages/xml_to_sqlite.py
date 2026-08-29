@@ -6,6 +6,7 @@ database.
 import hashlib
 import sqlite3
 from collections.abc import Generator
+from contextlib import closing
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
@@ -144,8 +145,12 @@ def messages_from_xml(file_path: Path) -> Generator[Message, None, None]:
 def add_messages_to_sqlite(messages: Generator[Message, None, None]):
     """
     Add a list of Message objects to a SQLite database. Creates the table if it doesn't exist.
+
+    `closing` is what actually releases the handle: `with sqlite3.connect(...)` manages the
+    transaction, not the connection, so on its own it leaves the connection open once the block
+    exits. `sync` calls this once per XML file, so that leaks a handle per file.
     """
-    with sqlite3.connect(str(db_path())) as conn:
+    with closing(sqlite3.connect(str(db_path()))) as conn:
         cursor = conn.cursor()
         cursor.execute(
             "CREATE TABLE IF NOT EXISTS messages "
