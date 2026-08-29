@@ -6,9 +6,10 @@ database.
 import hashlib
 import sqlite3
 from collections.abc import Generator
+from datetime import UTC, datetime
 from enum import Enum
-from typing import NamedTuple
 from pathlib import Path
+from typing import NamedTuple
 
 from lxml.etree import _Element, iterparse
 
@@ -22,6 +23,25 @@ class Direction(Enum):
 
     INCOMING = "incoming"
     OUTGOING = "outgoing"
+
+
+def iso_timestamp(epoch_millis: str | None) -> str:
+    """
+    Convert an Android epoch-milliseconds timestamp to `YYYY-MM-DD HH:MM:SS` local time.
+
+    The XML also carries a `readable_date` attribute, but it is slash-formatted, which SQLite's
+    date functions reject: `date('2026/08/01 09:59:36')` is NULL, so any query filtering on a
+    date range silently returns nothing. Storing ISO-8601 keeps the same local wall-clock reading
+    while sorting correctly as text and working with `date()` / `strftime()`.
+    """
+    if not epoch_millis:
+        return ""
+    try:
+        seconds = int(epoch_millis) / 1000
+    except ValueError:
+        return ""
+    local = datetime.fromtimestamp(seconds, tz=UTC).astimezone()
+    return local.strftime("%Y-%m-%d %H:%M:%S")
 
 
 class Message(NamedTuple):
@@ -57,7 +77,7 @@ def mms_from_message(elem: _Element) -> Message:
     Parse an MMS message and return a Message object.
     """
     contact_name = elem.get("contact_name") or ""
-    timestamp = elem.get("readable_date") or ""
+    timestamp = iso_timestamp(elem.get("date"))
     contact_address = elem.get("address") or ""
 
     message_type = elem.get("msg_box")
@@ -85,7 +105,7 @@ def sms_from_message(elem: _Element) -> Message:
     Parse an SMS message and return a Message object.
     """
     contact_name = elem.get("contact_name") or ""
-    timestamp = elem.get("readable_date") or ""
+    timestamp = iso_timestamp(elem.get("date"))
     contact_address = elem.get("address") or ""
     body = elem.get("body") or ""
 
