@@ -20,8 +20,8 @@ def android_messages_raw_dir() -> Path:
     return path
 
 
-def android_messages_db_path() -> Path:
+def db_path() -> Path:
     """Path to the Android Messages SQLite database."""
-    path = vpop_data_dir() / "db" / "android-messages.db"
+    path = vpop_data_dir() / "vpop.db"
     path.parent.mkdir(parents=True, exist_ok=True)
     return path

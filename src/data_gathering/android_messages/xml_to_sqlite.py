@@ -8,8 +8,11 @@ import sqlite3
 from collections.abc import Generator
 from enum import Enum
 from typing import NamedTuple
+from pathlib import Path
 
 from lxml.etree import _Element, iterparse
+
+from data_gathering.file_management.data_paths import db_path
 
 
 class Direction(Enum):
@@ -100,13 +103,12 @@ def sms_from_message(elem: _Element) -> Message:
     return Message(direction, was_sent, contact_address, contact_name, body, timestamp)
 
 
-def messages_from_xml(file_path: str) -> Generator[Message, None, None]:
+def messages_from_xml(file_path: Path) -> Generator[Message, None, None]:
     """
     Parse the SMS file and return a list of Message objects.
     """
-
     for _, elem in iterparse(
-        file_path, events=("end",), recover=True, encoding="utf-8"
+        file_path.as_posix(), events=("end",), recover=True, encoding="utf-8"
     ):
         if elem.tag == "mms":
             yield mms_from_message(elem)
@@ -119,11 +121,11 @@ def messages_from_xml(file_path: str) -> Generator[Message, None, None]:
         elem.clear()
 
 
-def add_messages_to_sqlite(messages: Generator[Message, None, None], db_path: str):
+def add_messages_to_sqlite(messages: Generator[Message, None, None]):
     """
     Add a list of Message objects to a SQLite database. Creates the table if it doesn't exist.
     """
-    with sqlite3.connect(db_path) as conn:
+    with sqlite3.connect(str(db_path())) as conn:
         cursor = conn.cursor()
         cursor.execute(
             "CREATE TABLE IF NOT EXISTS messages "
@@ -150,9 +152,9 @@ def add_messages_to_sqlite(messages: Generator[Message, None, None], db_path: st
         conn.commit()
 
 
-def xml_to_sqlite(xml_path: str, db_path: str):
+def xml_to_sqlite(xml_path: Path):
     """
     Convert an XML file to a SQLite database.
     """
     messages = messages_from_xml(xml_path)
-    add_messages_to_sqlite(messages, db_path)
+    add_messages_to_sqlite(messages)

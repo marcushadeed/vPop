@@ -2,10 +2,7 @@
 
 from data_gathering.android_messages.grab_raw_xml import download_raw_xml
 from data_gathering.android_messages.xml_to_sqlite import xml_to_sqlite
-from data_gathering.file_management.data_paths import (
-    android_messages_raw_dir,
-    android_messages_db_path,
-)
+from data_gathering.file_management.data_paths import android_messages_raw_dir
 
 
 def sync() -> None:
@@ -14,4 +11,4 @@ def sync() -> None:
     """
     download_raw_xml()
     for file in android_messages_raw_dir().glob("*.xml"):
-        xml_to_sqlite(str(file), str(android_messages_db_path()))
+        xml_to_sqlite(file)
