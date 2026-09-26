@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -21,17 +22,24 @@ def _get_credentials() -> Credentials:
     if OAUTH_TOKEN_PATH.exists():
         creds = Credentials.from_authorized_user_file(str(OAUTH_TOKEN_PATH), SCOPES)
 
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                str(OAUTH_CREDENTIALS_PATH), SCOPES
-            )
-            creds = flow.run_local_server(port=0)
+    if creds and creds.valid:
+        return creds
 
-        OAUTH_TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
-        OAUTH_TOKEN_PATH.write_text(creds.to_json())
+    if creds and creds.expired and creds.refresh_token:
+        try:
+            creds.refresh(Request())
+        except RefreshError:
+            # Refresh token was revoked or expired; fall back to consent.
+            creds = None
+
+    if not creds or not creds.valid:
+        flow = InstalledAppFlow.from_client_secrets_file(
+            str(OAUTH_CREDENTIALS_PATH), SCOPES
+        )
+        creds = flow.run_local_server(port=0)
+
+    OAUTH_TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
+    OAUTH_TOKEN_PATH.write_text(creds.to_json())
 
     return creds
 
