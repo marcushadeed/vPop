@@ -127,6 +127,11 @@ def test_search_bad_direction(db_file: Path) -> None:
         search_messages(direction="sideways")
 
 
+def test_search_me_conflicts_with_incoming(db_file: Path) -> None:
+    with pytest.raises(ValueError):
+        search_messages(sender="me", direction="incoming")
+
+
 def test_search_more_line_and_offset(db_file: Path) -> None:
     first = search_messages(limit=2).splitlines()
     assert len(first) == 3

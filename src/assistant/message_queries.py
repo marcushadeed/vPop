@@ -187,6 +187,10 @@ def search_messages(
         params.append(normalize_thread(thread_key))
     if sender:
         if sender.strip().lower() == "me":
+            if direction == Direction.INCOMING.value:
+                raise ValueError(
+                    'sender="me" means outgoing messages; drop direction="incoming"'
+                )
             direction = Direction.OUTGOING.value
         else:
             clauses.append("sender = ?")
@@ -337,6 +341,15 @@ def authorize(action: int, *_: object) -> int:
     return sqlite3.SQLITE_OK if action in ALLOWED_SQL_ACTIONS else sqlite3.SQLITE_DENY
 
 
+def sql_cell(value: object) -> str:
+    """Render one result cell, making NULL and empty strings visible."""
+    if value is None:
+        return "NULL"
+    if value == "":
+        return '""'
+    return one_line(str(value), SQL_CELL_CHARS)
+
+
 def run_sql(query: str, limit: int = 200) -> str:
     """
     Run one read-only SQL query against the database, for counts and aggregates.
@@ -360,12 +373,7 @@ def run_sql(query: str, limit: int = 200) -> str:
     if not rows:
         return " | ".join(columns) + "\n(no rows)"
     lines = [" | ".join(columns)]
-    lines += [
-        " | ".join(
-            "NULL" if v is None else one_line(str(v), SQL_CELL_CHARS) for v in row
-        )
-        for row in rows[:limit]
-    ]
+    lines += [" | ".join(sql_cell(value) for value in row) for row in rows[:limit]]
     if len(rows) > limit:
         lines.append(f"… more rows (raise limit or aggregate further, max {MAX_LIMIT})")
     return "\n".join(lines)

@@ -5,12 +5,12 @@ description = "Value Productivity Over Privacy. Give an LLM access to all your d
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "anthropic>=1.8.0",
     "google-api-python-client>=2.198.0",
     "google-auth-httplib2>=0.4.0",
     "google-auth-oauthlib>=1.4.0",
     "lxml>=6.1.2",
     "mypy>=2.3.1",
+    "ollama>=0.6.2",
     "pylint>=4.0.7",
     "ruff>=0.16.4",
     "sqlite-utils>=3.39",
