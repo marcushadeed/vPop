@@ -19,9 +19,12 @@ from ollama._utils import convert_function_to_tool
 from assistant import message_queries
 
 # Any Ollama model with tool support works; override with VPOP_OLLAMA_MODEL.
-MODEL = os.environ.get("VPOP_OLLAMA_MODEL", "llama3.1:8b")
+MODEL = os.environ.get("VPOP_OLLAMA_MODEL", "qwen3:8b")
 # Context window in tokens. Ollama's default is small, and a few tool results fill it quickly.
 NUM_CTX = int(os.environ.get("VPOP_OLLAMA_NUM_CTX", "16384"))
+# Whether thinking models reason before each step: "on", "off", or unset for the model's
+# default. Thinking is more accurate but much slower on CPU.
+THINK = {"on": True, "off": False}.get(os.environ.get("VPOP_OLLAMA_THINK", "").lower())
 # Tool-call rounds allowed per question before giving up.
 MAX_ROUNDS = 12
 
@@ -130,6 +133,7 @@ class Conversation:
             model=MODEL,
             messages=self.messages,
             tools=TOOLS,
+            think=THINK,
             options={"num_ctx": NUM_CTX, "temperature": 0},
         )
         return response.message
