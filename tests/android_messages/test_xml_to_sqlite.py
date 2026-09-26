@@ -214,3 +214,58 @@ def test_messages_from_xml_overlapping_dumps(tmp_path: Path, db_file: Path) -> N
     add_messages_to_sqlite(messages_from_xml(first))
     add_messages_to_sqlite(messages_from_xml(second))
     assert row_count(db_file) == 3
+
+
+RCS_MESSAGE_ID = "891C0147-43E5-45E6-8456-0EF3E44BC227"
+
+RCS_GROUP_MMS = f"""
+<mms address="{RCS_ID}" date="1728242138000" msg_box="1" m_id="{RCS_MESSAGE_ID}"
+     contact_name="(Unknown)">
+  <parts><part ct="text/plain" text="in the parking lot" /></parts>
+  <addrs>
+    <addr address="+13015251780" type="137" />
+    <addr address="+19196074173" type="151" />
+  </addrs>
+</mms>
+"""
+
+# The Samsung cloud backup also stores the group message as a 1:1 SMS from the sender.
+RCS_SHADOW_SMS = (
+    '<sms address="+13015251780" date="1728242138000" type="1" body="in the parking lot" '
+    f'imdn_message_id="{RCS_MESSAGE_ID}" creator="com.samsung.android.scloud" />'
+)
+
+
+def test_rcs_copies_share_hash() -> None:
+    mms = mms_from_message(parse(RCS_GROUP_MMS))
+    sms = sms_from_message(parse(RCS_SHADOW_SMS))
+    assert mms.rcs_message_id == sms.rcs_message_id == RCS_MESSAGE_ID
+    assert mms.thread_key != sms.thread_key
+    assert mms.hash() == sms.hash()
+
+
+def test_null_rcs_id_is_ignored() -> None:
+    elem = parse(
+        '<mms address="2405551234" date="1754056776000" msg_box="1" m_id="null">'
+        '<parts><part ct="text/plain" text="hi" /></parts></mms>'
+    )
+    assert mms_from_message(elem).rcs_message_id == ""
+
+
+@pytest.mark.parametrize("mms_first", [True, False])
+def test_rcs_duplicate_keeps_group_thread(
+    tmp_path: Path, db_file: Path, mms_first: bool
+) -> None:
+    records = [RCS_GROUP_MMS, RCS_SHADOW_SMS]
+    if not mms_first:
+        records.reverse()
+    dump = tmp_path / "dump.xml"
+    dump.write_text(f"<smses>{''.join(records)}</smses>")
+    add_messages_to_sqlite(messages_from_xml(dump))
+    add_messages_to_sqlite(messages_from_xml(dump))
+
+    with closing(sqlite3.connect(db_file)) as conn:
+        rows = conn.execute(
+            "SELECT thread_key, sender, rcs_message_id FROM messages"
+        ).fetchall()
+    assert rows == [(RCS_ID, "+13015251780", RCS_MESSAGE_ID)]

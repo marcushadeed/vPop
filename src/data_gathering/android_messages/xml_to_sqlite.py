@@ -46,6 +46,14 @@ def iso_timestamp(epoch_millis: str | None) -> str:
     return local.strftime("%Y-%m-%d %H:%M:%S")
 
 
+def attribute(elem: _Element, name: str) -> str:
+    """
+    Return an attribute's value, treating the literal `null` the backup writes as missing.
+    """
+    value = elem.get(name) or ""
+    return "" if value == "null" else value
+
+
 PHONE_CHARS = re.compile(r"^[\d\s+\-().]+$")
 
 # PDU address type for the sender of an MMS (the `From` header).
@@ -98,6 +106,11 @@ class Message(NamedTuple):
     `sender` is the normalized address of whoever sent an incoming message, and empty for
     outgoing ones. `contact_name` is display-only: it changes when a contact is renamed, so it is
     left out of the hash.
+
+    `rcs_message_id` is the RCS message id, when the message has one. The backup stores some
+    RCS group messages twice, as an MMS in the group thread and as an SMS that looks like a 1:1
+    text from the sender, and this id is how the two are matched. `from_mms` is not stored: it
+    marks the copy whose thread and sender win when both are imported.
     """
 
     direction: Direction
@@ -107,11 +120,19 @@ class Message(NamedTuple):
     contact_name: str
     body: str
     timestamp: str
+    rcs_message_id: str = ""
+    from_mms: bool = False
 
     def hash(self) -> str:
         """
         Return a hash of the message's stable fields.
+
+        With an RCS id, only the id, direction and timestamp are hashed, because the thread and
+        sender differ between the MMS and SMS copies of the same message.
         """
+        if self.rcs_message_id:
+            key = f"{self.rcs_message_id}\x1f{self.direction.value}\x1f{self.timestamp}"
+            return hashlib.sha256(f"rcs\x1f{key}".encode()).hexdigest()
         return hashlib.sha256(
             "\x1f".join(
                 (
@@ -159,7 +180,15 @@ def mms_from_message(elem: _Element) -> Message:
         sender = normalize_address(from_value or address)
 
     return Message(
-        direction, was_sent, thread_key(address), sender, contact_name, body, timestamp
+        direction,
+        was_sent,
+        thread_key(address),
+        sender,
+        contact_name,
+        body,
+        timestamp,
+        rcs_message_id=attribute(elem, "m_id"),
+        from_mms=True,
     )
 
 
@@ -186,7 +215,14 @@ def sms_from_message(elem: _Element) -> Message:
     sender = normalize_address(address) if direction is Direction.INCOMING else ""
 
     return Message(
-        direction, was_sent, thread_key(address), sender, contact_name, body, timestamp
+        direction,
+        was_sent,
+        thread_key(address),
+        sender,
+        contact_name,
+        body,
+        timestamp,
+        rcs_message_id=attribute(elem, "imdn_message_id"),
     )
 
 
@@ -215,13 +251,17 @@ def add_messages_to_sqlite(messages: Iterable[Message]):
     `closing` is what actually releases the handle: `with sqlite3.connect(...)` manages the
     transaction, not the connection, so on its own it leaves the connection open once the block
     exits. `sync` calls this once per XML file, so that leaks a handle per file.
+
+    When a message is already stored, an MMS copy overwrites the thread and sender of an SMS
+    copy, so a group message ends up in its group thread whichever copy is imported first.
     """
     with closing(sqlite3.connect(str(db_path()))) as conn:
         cursor = conn.cursor()
         cursor.execute(
             "CREATE TABLE IF NOT EXISTS messages "
             "(id TEXT PRIMARY KEY, direction TEXT, was_sent INTEGER, "
-            "thread_key TEXT, sender TEXT, contact_name TEXT, body TEXT, timestamp TEXT)"
+            "thread_key TEXT, sender TEXT, contact_name TEXT, body TEXT, timestamp TEXT, "
+            "rcs_message_id TEXT)"
         )
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_messages_thread_ts "
@@ -233,9 +273,13 @@ def add_messages_to_sqlite(messages: Iterable[Message]):
         for message in messages:
             message_id = message.hash()
             cursor.execute(
-                "INSERT OR IGNORE INTO messages "
-                "(id, direction, was_sent, thread_key, sender, contact_name, body, timestamp) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO messages "
+                "(id, direction, was_sent, thread_key, sender, contact_name, body, timestamp, "
+                "rcs_message_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT (id) DO UPDATE SET thread_key = excluded.thread_key, "
+                "sender = excluded.sender, contact_name = excluded.contact_name "
+                "WHERE ?",
                 (
                     message_id,
                     message.direction.value,
@@ -245,6 +289,8 @@ def add_messages_to_sqlite(messages: Iterable[Message]):
                     message.contact_name,
                     message.body,
                     message.timestamp,
+                    message.rcs_message_id,
+                    message.from_mms,
                 ),
             )
 
