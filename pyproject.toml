@@ -29,7 +29,12 @@ where = ["src"]
 [dependency-groups]
 dev = [
     "lxml-stubs>=0.5.1",
+    "pytest>=9.1.1",
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
 
 [tool.pylint.main]
 extension-pkg-allow-list = ["lxml"]

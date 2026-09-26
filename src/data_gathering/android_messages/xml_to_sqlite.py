@@ -4,8 +4,9 @@ database.
 """
 
 import hashlib
+import re
 import sqlite3
-from collections.abc import Generator
+from collections.abc import Generator, Iterable
 from contextlib import closing
 from datetime import UTC, datetime
 from enum import Enum
@@ -45,30 +46,82 @@ def iso_timestamp(epoch_millis: str | None) -> str:
     return local.strftime("%Y-%m-%d %H:%M:%S")
 
 
+PHONE_CHARS = re.compile(r"^[\d\s+\-().]+$")
+
+# PDU address type for the sender of an MMS (the `From` header).
+MMS_FROM_ADDR_TYPE = "137"
+
+
+def normalize_address(raw: str | None) -> str:
+    """
+    Normalize a single phone number so one person maps to one key across dumps.
+
+    The same number appears as `+12405551234`, `12405551234` or `2405551234` depending on the
+    dump. US numbers are coerced to E.164 (`+1XXXXXXXXXX`); other numbers keep their digits and
+    any leading `+`. Non-phone addresses (RCS group ids, email, alphanumeric senders) are only
+    lowercased and trimmed.
+    """
+    if not raw:
+        return ""
+    raw = raw.strip()
+    if not PHONE_CHARS.match(raw):
+        return raw.lower()
+    digits = re.sub(r"\D", "", raw)
+    if len(digits) == 10:
+        return f"+1{digits}"
+    if len(digits) == 11 and digits.startswith("1"):
+        return f"+{digits}"
+    if raw.startswith("+"):
+        return f"+{digits}"
+    return digits
+
+
+def thread_key(raw_address: str | None) -> str:
+    """
+    Return a stable key for the conversation a message belongs to.
+
+    Group addresses list participants joined by `~` or `;` in no fixed order, so the same group
+    shows up under several spellings. Participants are normalized, deduplicated and sorted.
+    RCS group ids (`...@rcs.google.com`) are already stable and pass through unchanged.
+    """
+    if not raw_address:
+        return ""
+    parts = {normalize_address(part) for part in re.split(r"[~;]", raw_address)}
+    parts.discard("")
+    return ",".join(sorted(parts))
+
+
 class Message(NamedTuple):
     """
     Platform-agnostic message. Mirrors SQLite message table schema.
+
+    `sender` is the normalized address of whoever sent an incoming message, and empty for
+    outgoing ones. `contact_name` is display-only: it changes when a contact is renamed, so it is
+    left out of the hash.
     """
 
     direction: Direction
     was_sent: bool
-    contact_address: str
+    thread_key: str
+    sender: str
     contact_name: str
     body: str
     timestamp: str
 
     def hash(self) -> str:
         """
-        Return a hash of the message.
+        Return a hash of the message's stable fields.
         """
         return hashlib.sha256(
-            (
-                f"{self.direction.value}"
-                f"{self.was_sent}"
-                f"{self.contact_address}"
-                f"{self.contact_name}"
-                f"{self.body}"
-                f"{self.timestamp}"
+            "\x1f".join(
+                (
+                    self.direction.value,
+                    str(self.was_sent),
+                    self.thread_key,
+                    self.sender,
+                    self.timestamp,
+                    self.body,
+                )
             ).encode()
         ).hexdigest()
 
@@ -79,7 +132,7 @@ def mms_from_message(elem: _Element) -> Message:
     """
     contact_name = elem.get("contact_name") or ""
     timestamp = iso_timestamp(elem.get("date"))
-    contact_address = elem.get("address") or ""
+    address = elem.get("address") or ""
 
     message_type = elem.get("msg_box")
     if message_type == "1":
@@ -98,7 +151,16 @@ def mms_from_message(elem: _Element) -> Message:
             if part.get("ct") == "text/plain":
                 body += part.get("text") or ""
 
-    return Message(direction, was_sent, contact_address, contact_name, body, timestamp)
+    sender = ""
+    if direction is Direction.INCOMING:
+        # In a group the thread address is the whole group; the `From` addr names who sent it.
+        from_addr = elem.find(f"addrs/addr[@type='{MMS_FROM_ADDR_TYPE}']")
+        from_value = from_addr.get("address") if from_addr is not None else None
+        sender = normalize_address(from_value or address)
+
+    return Message(
+        direction, was_sent, thread_key(address), sender, contact_name, body, timestamp
+    )
 
 
 def sms_from_message(elem: _Element) -> Message:
@@ -107,7 +169,7 @@ def sms_from_message(elem: _Element) -> Message:
     """
     contact_name = elem.get("contact_name") or ""
     timestamp = iso_timestamp(elem.get("date"))
-    contact_address = elem.get("address") or ""
+    address = elem.get("address") or ""
     body = elem.get("body") or ""
 
     message_type = elem.get("type")
@@ -121,7 +183,11 @@ def sms_from_message(elem: _Element) -> Message:
         direction = Direction.INCOMING
         was_sent = False
 
-    return Message(direction, was_sent, contact_address, contact_name, body, timestamp)
+    sender = normalize_address(address) if direction is Direction.INCOMING else ""
+
+    return Message(
+        direction, was_sent, thread_key(address), sender, contact_name, body, timestamp
+    )
 
 
 def messages_from_xml(file_path: Path) -> Generator[Message, None, None]:
@@ -142,7 +208,7 @@ def messages_from_xml(file_path: Path) -> Generator[Message, None, None]:
         elem.clear()
 
 
-def add_messages_to_sqlite(messages: Generator[Message, None, None]):
+def add_messages_to_sqlite(messages: Iterable[Message]):
     """
     Add a list of Message objects to a SQLite database. Creates the table if it doesn't exist.
 
@@ -155,19 +221,27 @@ def add_messages_to_sqlite(messages: Generator[Message, None, None]):
         cursor.execute(
             "CREATE TABLE IF NOT EXISTS messages "
             "(id TEXT PRIMARY KEY, direction TEXT, was_sent INTEGER, "
-            "contact_address TEXT, contact_name TEXT, body TEXT, timestamp TEXT)"
+            "thread_key TEXT, sender TEXT, contact_name TEXT, body TEXT, timestamp TEXT)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_messages_thread_ts "
+            "ON messages (thread_key, timestamp)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_messages_ts ON messages (timestamp)"
         )
         for message in messages:
             message_id = message.hash()
             cursor.execute(
                 "INSERT OR IGNORE INTO messages "
-                "(id, direction, was_sent, contact_address, contact_name, body, timestamp) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "(id, direction, was_sent, thread_key, sender, contact_name, body, timestamp) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     message_id,
                     message.direction.value,
                     message.was_sent,
-                    message.contact_address,
+                    message.thread_key,
+                    message.sender,
                     message.contact_name,
                     message.body,
                     message.timestamp,
