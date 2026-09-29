@@ -10,6 +10,7 @@ import os
 import sqlite3
 import sys
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -22,9 +23,16 @@ from assistant import message_queries
 MODEL = os.environ.get("VPOP_OLLAMA_MODEL", "qwen3:8b")
 # Context window in tokens. Ollama's default is small, and a few tool results fill it quickly.
 NUM_CTX = int(os.environ.get("VPOP_OLLAMA_NUM_CTX", "16384"))
+
+
+def parse_think(value: str) -> bool | None:
+    """Map "on"/"off" to True/False; anything else means the model's default."""
+    return {"on": True, "off": False}.get(value.strip().lower())
+
+
 # Whether thinking models reason before each step: "on", "off", or unset for the model's
 # default. Thinking is more accurate but much slower on CPU.
-THINK = {"on": True, "off": False}.get(os.environ.get("VPOP_OLLAMA_THINK", "").lower())
+THINK = parse_think(os.environ.get("VPOP_OLLAMA_THINK", ""))
 # Tool-call rounds allowed per question before giving up.
 MAX_ROUNDS = 12
 
@@ -118,11 +126,62 @@ def log_tool_call(name: str, arguments: Mapping[str, Any]) -> None:
     print(f"  → {name}({args})", file=sys.stderr)
 
 
+@dataclass(frozen=True)
+class Settings:
+    """Model settings for a conversation. Defaults come from the VPOP_OLLAMA_* env vars."""
+
+    model: str = MODEL
+    num_ctx: int = NUM_CTX
+    think: bool | None = THINK
+    max_rounds: int = MAX_ROUNDS
+
+
+@dataclass
+class ToolCall:
+    """One tool call the model made and what it got back."""
+
+    name: str
+    arguments: dict[str, Any]
+    result: str
+
+    @property
+    def is_error(self) -> bool:
+        """Whether the call failed; `call_tool` reports failures as `error: ...`."""
+        return self.result.startswith("error:")
+
+
+@dataclass
+class Trace:
+    """What a conversation did: its tool calls, model rounds and Ollama's token counts."""
+
+    tool_calls: list[ToolCall] = field(default_factory=list)
+    rounds: int = 0
+    hit_round_limit: bool = False
+    prompt_tokens: int = 0
+    output_tokens: int = 0
+    # Ollama's own timing, in nanoseconds.
+    model_ns: int = 0
+
+
 class Conversation:
     """A multi-turn conversation over the database."""
 
-    def __init__(self, client: ollama.Client | None = None) -> None:
+    def __init__(
+        self,
+        client: ollama.Client | None = None,
+        settings: Settings | None = None,
+        today: str | None = None,
+        verbose: bool = True,
+    ) -> None:
+        """
+        `today` is a `YYYY-MM-DD` date to tell the model instead of the real one, so questions
+        like "last month" have a fixed answer. `verbose` logs tool calls to stderr.
+        """
         self.client = client or ollama.Client()
+        self.settings = settings or Settings()
+        self.today = today
+        self.verbose = verbose
+        self.trace = Trace()
         self.messages: list[dict[str, Any] | ollama.Message] = [
             {"role": "system", "content": SYSTEM_PROMPT}
         ]
@@ -130,38 +189,53 @@ class Conversation:
     def chat(self) -> ollama.Message:
         """Send the conversation so far and return the model's reply."""
         response = self.client.chat(
-            model=MODEL,
+            model=self.settings.model,
             messages=self.messages,
             tools=TOOLS,
-            think=THINK,
-            options={"num_ctx": NUM_CTX, "temperature": 0},
+            think=self.settings.think,
+            options={"num_ctx": self.settings.num_ctx, "temperature": 0},
         )
+        self.trace.rounds += 1
+        self.trace.prompt_tokens += response.prompt_eval_count or 0
+        self.trace.output_tokens += response.eval_count or 0
+        self.trace.model_ns += response.total_duration or 0
         return response.message
+
+    def today_label(self) -> str:
+        """The date line the model is told, e.g. `Monday 2026-09-28`."""
+        date = (
+            datetime.fromisoformat(self.today)
+            if self.today
+            else datetime.now().astimezone()
+        )
+        return date.strftime("%A %Y-%m-%d")
 
     def ask(self, question: str) -> str:
         """Ask a question and return the answer, keeping the exchange in the history."""
-        today = datetime.now().astimezone().strftime("%A %Y-%m-%d")
         self.messages.append(
-            {"role": "user", "content": f"(Today is {today}.)\n\n{question}"}
+            {
+                "role": "user",
+                "content": f"(Today is {self.today_label()}.)\n\n{question}",
+            }
         )
-        for _ in range(MAX_ROUNDS):
+        for _ in range(self.settings.max_rounds):
             reply = self.chat()
             self.messages.append(reply)
             if not reply.tool_calls:
                 return (reply.content or "").strip() or "(empty response)"
             for call in reply.tool_calls:
-                log_tool_call(call.function.name, call.function.arguments)
+                name, arguments = call.function.name, call.function.arguments
+                if self.verbose:
+                    log_tool_call(name, arguments)
+                result = call_tool(name, arguments)
+                self.trace.tool_calls.append(ToolCall(name, dict(arguments), result))
                 self.messages.append(
-                    {
-                        "role": "tool",
-                        "tool_name": call.function.name,
-                        "content": call_tool(
-                            call.function.name, call.function.arguments
-                        ),
-                    }
+                    {"role": "tool", "tool_name": name, "content": result}
                 )
+        self.trace.hit_round_limit = True
         return (
-            f"(Stopped after {MAX_ROUNDS} rounds of tool calls without a final answer.)"
+            f"(Stopped after {self.settings.max_rounds} rounds of tool calls "
+            "without a final answer.)"
         )
 
 
