@@ -1,40 +1,34 @@
 """
-Answer plain-language questions about the message database with a local Ollama model.
+Answer plain-language questions about the message database.
 
-Nothing leaves the machine. The model never sees the database directly: it calls the
-read-only functions in `message_queries` as tools and pulls in only the rows it needs.
+By default this runs a local Ollama model and nothing leaves the machine; with
+`local_model = false` in the config it uses Claude instead (see `claude_harness`). Either way
+the model never sees the database directly: it calls the read-only functions in
+`message_queries` as tools and pulls in only the rows it needs.
 """
 
 import inspect
-import os
 import sqlite3
 import sys
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import ollama
 from ollama._utils import convert_function_to_tool
 
 from assistant import message_queries
+from config import AssistantConfig, Config, OllamaConfig, load_config
 
-# Any Ollama model with tool support works; override with VPOP_OLLAMA_MODEL.
-MODEL = os.environ.get("VPOP_OLLAMA_MODEL", "qwen3:8b")
-# Context window in tokens. Ollama's default is small, and a few tool results fill it quickly.
-NUM_CTX = int(os.environ.get("VPOP_OLLAMA_NUM_CTX", "16384"))
+if TYPE_CHECKING:
+    from assistant.claude_harness import ClaudeConversation
 
 
 def parse_think(value: str) -> bool | None:
     """Map "on"/"off" to True/False; anything else means the model's default."""
     return {"on": True, "off": False}.get(value.strip().lower())
 
-
-# Whether thinking models reason before each step: "on", "off", or unset for the model's
-# default. Thinking is more accurate but much slower on CPU.
-THINK = parse_think(os.environ.get("VPOP_OLLAMA_THINK", ""))
-# Tool-call rounds allowed per question before giving up.
-MAX_ROUNDS = 12
 
 SYSTEM_PROMPT = """\
 You answer questions about the user's own text messages (SMS, MMS and RCS from their Android \
@@ -126,14 +120,33 @@ def log_tool_call(name: str, arguments: Mapping[str, Any]) -> None:
     print(f"  → {name}({args})", file=sys.stderr)
 
 
+def today_label(today: str | None = None) -> str:
+    """
+    The date line the model is told, e.g. `Monday 2026-09-28`: `today` (a `YYYY-MM-DD`
+    date) if given, else the real date.
+    """
+    date = datetime.fromisoformat(today) if today else datetime.now().astimezone()
+    return date.strftime("%A %Y-%m-%d")
+
+
 @dataclass(frozen=True)
 class Settings:
-    """Model settings for a conversation. Defaults come from the VPOP_OLLAMA_* env vars."""
+    """Ollama settings for a conversation. Defaults are the config file's defaults."""
 
-    model: str = MODEL
-    num_ctx: int = NUM_CTX
-    think: bool | None = THINK
-    max_rounds: int = MAX_ROUNDS
+    model: str = OllamaConfig.model
+    num_ctx: int = OllamaConfig.num_ctx
+    think: bool | None = parse_think(OllamaConfig.think)
+    max_rounds: int = AssistantConfig.max_rounds
+
+    @classmethod
+    def from_config(cls, config: Config) -> "Settings":
+        """The settings a config file asks for."""
+        return cls(
+            model=config.ollama.model,
+            num_ctx=config.ollama.num_ctx,
+            think=parse_think(config.ollama.think),
+            max_rounds=config.assistant.max_rounds,
+        )
 
 
 @dataclass
@@ -164,7 +177,7 @@ class Trace:
 
 
 class Conversation:
-    """A multi-turn conversation over the database."""
+    """A multi-turn conversation over the database with a local Ollama model."""
 
     def __init__(
         self,
@@ -203,12 +216,7 @@ class Conversation:
 
     def today_label(self) -> str:
         """The date line the model is told, e.g. `Monday 2026-09-28`."""
-        date = (
-            datetime.fromisoformat(self.today)
-            if self.today
-            else datetime.now().astimezone()
-        )
-        return date.strftime("%A %Y-%m-%d")
+        return today_label(self.today)
 
     def ask(self, question: str) -> str:
         """Ask a question and return the answer, keeping the exchange in the history."""
@@ -239,14 +247,29 @@ class Conversation:
         )
 
 
-def ask(question: str) -> str:
+def new_conversation(
+    config: Config | None = None,
+) -> "Conversation | ClaudeConversation":
+    """A conversation with whichever model the config picks."""
+    config = config or load_config()
+    if config.assistant.local_model:
+        return Conversation(settings=Settings.from_config(config))
+    # Deferred so a local-only setup never imports the Anthropic SDK.
+    from assistant.claude_harness import (  # pylint: disable=import-outside-toplevel
+        ClaudeConversation,
+    )
+
+    return ClaudeConversation(config.claude, max_rounds=config.assistant.max_rounds)
+
+
+def ask(question: str, config: Config | None = None) -> str:
     """Answer a single question."""
-    return Conversation().ask(question)
+    return new_conversation(config).ask(question)
 
 
-def repl() -> None:
+def repl(config: Config | None = None) -> None:
     """Interactive question loop that keeps the conversation history. Exit with Ctrl-D."""
-    conversation = Conversation()
+    conversation = new_conversation(config)
     while True:
         try:
             question = input("ask> ").strip()

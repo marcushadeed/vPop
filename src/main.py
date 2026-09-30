@@ -3,6 +3,15 @@
 import argparse
 from pathlib import Path
 
+from config import (
+    Config,
+    ConfigError,
+    config_path,
+    load_config,
+    render_config,
+    write_default_config,
+)
+
 
 def main():
     """Entry point for the vpop CLI. With no subcommand, runs `sync`."""
@@ -13,11 +22,25 @@ def main():
         "ask", help="ask a question about your messages (no question starts a REPL)"
     )
     ask_parser.add_argument("question", nargs="*", help="the question to ask")
+    config_parser = subcommands.add_parser(
+        "config", help="write or show the config file"
+    )
+    config_actions = config_parser.add_subparsers(dest="config_command", required=True)
+    init_parser = config_actions.add_parser(
+        "init", help="write a config file with every setting at its default"
+    )
+    init_parser.add_argument(
+        "--force", action="store_true", help="overwrite an existing config file"
+    )
+    config_actions.add_parser("show", help="print the settings in effect")
     bench_parser = subcommands.add_parser(
         "bench", help="benchmark models on fixed questions over a synthetic database"
     )
     bench_parser.add_argument(
-        "--model", action="append", default=[], help="Ollama model (repeatable)"
+        "--model",
+        action="append",
+        default=[],
+        help="Ollama model (repeatable; defaults to the config's ollama.model)",
     )
     bench_parser.add_argument(
         "--think",
@@ -53,10 +76,13 @@ def main():
     if args.command == "ask":
         from assistant.harness import ask, repl
 
+        config = load_or_exit()
         if args.question:
-            print(ask(" ".join(args.question)))
+            print(ask(" ".join(args.question), config))
         else:
-            repl()
+            repl(config)
+    elif args.command == "config":
+        config_command(args)
     elif args.command == "bench":
         bench(args)
     else:
@@ -65,11 +91,33 @@ def main():
         sync()
 
 
+def load_or_exit() -> Config:
+    """The config file's settings, exiting with its error if it's invalid."""
+    try:
+        return load_config()
+    except ConfigError as exc:
+        raise SystemExit(f"bad config: {exc}") from exc
+
+
+def config_command(args: argparse.Namespace) -> None:
+    """Write a default config file, or print the settings in effect."""
+    if args.config_command == "init":
+        try:
+            path = write_default_config(force=args.force)
+        except FileExistsError as exc:
+            raise SystemExit(str(exc)) from exc
+        print(f"wrote {path}")
+    else:
+        path = config_path()
+        source = path if path.exists() else f"defaults ({path} doesn't exist)"
+        print(f"# from {source}")
+        print(render_config(load_or_exit(), comments=False), end="")
+
+
 def bench(args: argparse.Namespace) -> None:
     """Run, list or compare benchmark cases."""
     from assistant.benchmark import run
     from assistant.benchmark.cases import CASES
-    from assistant.harness import MODEL
 
     if args.list:
         for case in CASES:
@@ -78,7 +126,7 @@ def bench(args: argparse.Namespace) -> None:
         run.compare([Path(p) for p in args.compare])
     else:
         run.run(
-            models=args.model or [MODEL],
+            models=args.model or [load_or_exit().ollama.model],
             thinks=args.think,
             case_ids=args.case,
             tags=args.tag,
