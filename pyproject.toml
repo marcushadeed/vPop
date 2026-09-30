@@ -17,6 +17,9 @@ dependencies = [
     "sqlite-utils>=3.39",
 ]
 
+[project.scripts]
+vpop = "main:main"
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
