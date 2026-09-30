@@ -108,10 +108,9 @@ def config_command(args: argparse.Namespace) -> None:
             raise SystemExit(str(exc)) from exc
         print(f"wrote {path}")
     else:
-        path = config_path()
-        source = path if path.exists() else f"defaults ({path} doesn't exist)"
-        print(f"# from {source}")
-        print(render_config(load_or_exit(), comments=False), end="")
+        config = load_or_exit()
+        print(f"# from {config_path()}")
+        print(render_config(config, comments=False), end="")
 
 
 def bench(args: argparse.Namespace) -> None:

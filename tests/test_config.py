@@ -10,6 +10,7 @@ from config import (
     Config,
     ConfigError,
     config_path,
+    config_paths,
     load_config,
     parse_config,
     render_config,
@@ -17,8 +18,16 @@ from config import (
 )
 
 
-def test_missing_file_gives_defaults(tmp_path: Path) -> None:
-    assert load_config(tmp_path / "nope.toml") == Config()
+def test_missing_file_is_created_with_defaults(tmp_path: Path) -> None:
+    path = tmp_path / "vpop" / "config.toml"
+    assert load_config(path) == Config()
+    assert path.read_text() == render_config(Config())
+
+
+def test_unwritable_location_still_gives_defaults(tmp_path: Path) -> None:
+    blocker = tmp_path / "vpop"
+    blocker.write_text("a file where the directory should be")
+    assert load_config(blocker / "config.toml") == Config()
 
 
 def test_empty_file_gives_defaults() -> None:
@@ -84,11 +93,51 @@ def test_load_error_names_the_file(tmp_path: Path) -> None:
         load_config(path)
 
 
-def test_config_path_follows_xdg(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+@pytest.fixture
+def homes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Path, Path]:
+    """Point HOME and XDG_CONFIG_HOME at separate temp dirs; return both config paths."""
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    return (
+        tmp_path / "xdg" / "vpop" / "config.toml",
+        tmp_path / "home" / ".config" / "vpop" / "config.toml",
+    )
+
+
+def test_config_paths_prefer_xdg(homes: tuple[Path, Path]) -> None:
+    assert config_paths() == list(homes)
+
+
+def test_config_paths_without_xdg(
+    monkeypatch: pytest.MonkeyPatch, homes: tuple[Path, Path]
 ) -> None:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    assert config_path() == tmp_path / "vpop" / "config.toml"
+    monkeypatch.delenv("XDG_CONFIG_HOME")
+    assert config_paths() == [homes[1]]
+
+
+def test_existing_home_config_is_used(homes: tuple[Path, Path]) -> None:
+    xdg, home = homes
+    home.parent.mkdir(parents=True)
+    home.write_text("[assistant]\nlocal_model = false\n")
+    assert config_path() == home
+    assert load_config().assistant.local_model is False
+    assert not xdg.exists()
+
+
+def test_existing_xdg_config_wins(homes: tuple[Path, Path]) -> None:
+    for path, local in zip(homes, ("true", "false")):
+        path.parent.mkdir(parents=True)
+        path.write_text(f"[assistant]\nlocal_model = {local}\n")
+    assert load_config().assistant.local_model is True
+
+
+def test_no_config_anywhere_creates_one_in_first_location(
+    homes: tuple[Path, Path],
+) -> None:
+    xdg, home = homes
+    assert load_config() == Config()
+    assert xdg.exists()
+    assert not home.exists()
 
 
 def test_settings_from_config() -> None:

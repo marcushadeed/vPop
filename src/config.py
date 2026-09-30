@@ -3,12 +3,14 @@ Read and generate the vpop config file (`$XDG_CONFIG_HOME/vpop/config.toml`).
 
 Every setting has its default here. A missing file, section or key falls back to that
 default, so the file only needs the settings you want to change. `vpop config init` writes a
-file listing every setting at its default.
+file listing every setting at its default, and `load_config` does the same when no file
+exists yet.
 """
 
 from __future__ import annotations
 
 import os
+import sys
 import tomllib
 from dataclasses import dataclass, field, fields
 from pathlib import Path
@@ -105,11 +107,22 @@ class ConfigError(ValueError):
     """The config file can't be parsed or has a bad setting."""
 
 
-def config_path() -> Path:
-    """The config file (`$XDG_CONFIG_HOME/vpop/config.toml`, else `~/.config/vpop/...`)."""
+def config_paths() -> list[Path]:
+    """
+    Where the config file is looked for, in order: `$XDG_CONFIG_HOME/vpop/config.toml`
+    (when the variable is set), then `~/.config/vpop/config.toml`.
+    """
+    bases = [Path.home() / ".config"]
     xdg = os.environ.get("XDG_CONFIG_HOME")
-    base = Path(xdg) if xdg else Path.home() / ".config"
-    return base / "vpop" / "config.toml"
+    if xdg and Path(xdg) != bases[0]:
+        bases.insert(0, Path(xdg))
+    return [base / "vpop" / "config.toml" for base in bases]
+
+
+def config_path() -> Path:
+    """The first config file that exists, else where a new one goes (the first location)."""
+    paths = config_paths()
+    return next((path for path in paths if path.exists()), paths[0])
 
 
 def build_section(cls: type, name: str, values: Any) -> Any:
@@ -152,9 +165,18 @@ def parse_config(text: str) -> Config:
 
 
 def load_config(path: Path | None = None) -> Config:
-    """Read the config file, or return the defaults when it doesn't exist."""
+    """
+    Read the config file. If it doesn't exist, write one with the defaults and return
+    those; if it can't be written, warn and return the defaults anyway.
+    """
     path = path or config_path()
     if not path.exists():
+        try:
+            write_default_config(path)
+        except OSError as exc:
+            print(f"warning: couldn't create {path}: {exc}", file=sys.stderr)
+        else:
+            print(f"created default config at {path}", file=sys.stderr)
         return Config()
     try:
         return parse_config(path.read_text())
