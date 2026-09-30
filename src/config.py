@@ -77,7 +77,13 @@ class OllamaConfig:
 class ClaudeConfig:
     """The `[claude]` section, used when `local_model = false`."""
 
-    model: str = field(default="claude-opus-5-5", metadata=doc("Claude model id."))
+    model: str = field(
+        default="claude-sonnet-5-5",
+        metadata=doc(
+            'Claude model id, e.g. "claude-sonnet-5-5" or "claude-opus-5-5" '
+            "(smarter, 2x the price)."
+        ),
+    )
     max_tokens: int = field(
         default=16000, metadata=doc("Output token cap per model response.")
     )

@@ -164,13 +164,17 @@ class ToolCall:
 
 
 @dataclass
-class Trace:
+class Trace:  # pylint: disable=too-many-instance-attributes
     """What a conversation did: its tool calls, model rounds and Ollama's token counts."""
 
     tool_calls: list[ToolCall] = field(default_factory=list)
     rounds: int = 0
     hit_round_limit: bool = False
+    # All input tokens, cached or not.
     prompt_tokens: int = 0
+    # The parts of `prompt_tokens` read from and written to the prompt cache (Claude only).
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
     output_tokens: int = 0
     # Ollama's own timing, in nanoseconds.
     model_ns: int = 0

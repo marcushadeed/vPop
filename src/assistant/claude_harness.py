@@ -7,6 +7,8 @@ for (message rows) are sent to Anthropic.
 """
 
 import os
+import sys
+from dataclasses import dataclass
 from typing import Any, cast
 
 import anthropic
@@ -31,6 +33,83 @@ from paths import ANTHROPIC_ENV
 
 # On a safety refusal, the API re-runs the request on a fallback model it picks.
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
+
+
+@dataclass(frozen=True)
+class Price:
+    """A model's API prices in dollars per million tokens."""
+
+    input: float
+    output: float
+    cache_read: float
+
+    @property
+    def cache_write(self) -> float:
+        """Writing the 5-minute cache that `cache_control: ephemeral` uses costs 1.25x input."""
+        return self.input * 1.25
+
+
+# Only for the cost estimate printed after each answer; billing is what counts.
+PRICES = {
+    "claude-sonnet-5-5": Price(input=2, output=10, cache_read=0.20),
+    "claude-opus-5-5": Price(input=4, output=20, cache_read=0.20),
+    "claude-fable-5-1": Price(input=10, output=50, cache_read=0.25),
+    "claude-haiku-4-5": Price(input=1, output=5, cache_read=0.10),
+}
+
+
+def response_cost(response: BetaMessage) -> float | None:
+    """
+    Estimated dollar cost of one response, priced by the model that served it (a fallback
+    model's response at its own rates). None when the model isn't in `PRICES`.
+    """
+    price = PRICES.get(response.model)
+    if price is None:
+        return None
+    usage = response.usage
+    return (
+        usage.input_tokens * price.input
+        + (usage.cache_read_input_tokens or 0) * price.cache_read
+        + (usage.cache_creation_input_tokens or 0) * price.cache_write
+        + usage.output_tokens * price.output
+    ) / 1_000_000
+
+
+@dataclass(frozen=True)
+class Spend:
+    """Token and cost totals, so one question's share is the difference of two snapshots."""
+
+    uncached: int
+    cache_read: int
+    cache_write: int
+    output: int
+    cost: float
+    unpriced: frozenset[str]
+
+    def __sub__(self, other: "Spend") -> "Spend":
+        return Spend(
+            self.uncached - other.uncached,
+            self.cache_read - other.cache_read,
+            self.cache_write - other.cache_write,
+            self.output - other.output,
+            self.cost - other.cost,
+            self.unpriced - other.unpriced,
+        )
+
+
+def usage_line(question: Spend, session: Spend) -> str:
+    """
+    One line of token use and estimated cost, e.g.
+    `usage: 3,120 in + 41,800 cached + 2,050 cache write, 780 out · ~$0.03 (session ~$0.11)`.
+    """
+    tokens = (
+        f"usage: {question.uncached:,} in + {question.cache_read:,} cached + "
+        f"{question.cache_write:,} cache write, {question.output:,} out"
+    )
+    if question.unpriced:
+        return f"{tokens} (no price for {', '.join(sorted(question.unpriced))})"
+    session_part = "" if session.unpriced else f" (session ~${session.cost:.2f})"
+    return f"{tokens} · ~${question.cost:.2f}{session_part}"
 
 
 def load_anthropic_env() -> None:
@@ -100,6 +179,9 @@ class ClaudeConversation:  # pylint: disable=too-many-instance-attributes
         self.trace = Trace()
         self.tools = claude_tools()
         self.messages: list[BetaMessageParam] = []
+        self.cost = 0.0
+        # Models that served a response but have no entry in `PRICES`.
+        self.unpriced: set[str] = set()
 
     def chat(self) -> BetaMessage:
         """Send the conversation so far and return the model's reply."""
@@ -116,17 +198,49 @@ class ClaudeConversation:  # pylint: disable=too-many-instance-attributes
             betas=[FALLBACK_BETA],
             fallbacks="default",
         )
+        usage = response.usage
+        cache_read = usage.cache_read_input_tokens or 0
+        cache_write = usage.cache_creation_input_tokens or 0
         self.trace.rounds += 1
-        self.trace.prompt_tokens += (
-            response.usage.input_tokens
-            + (response.usage.cache_read_input_tokens or 0)
-            + (response.usage.cache_creation_input_tokens or 0)
-        )
-        self.trace.output_tokens += response.usage.output_tokens
+        self.trace.prompt_tokens += usage.input_tokens + cache_read + cache_write
+        self.trace.cache_read_tokens += cache_read
+        self.trace.cache_write_tokens += cache_write
+        self.trace.output_tokens += usage.output_tokens
+        cost = response_cost(response)
+        if cost is None:
+            self.unpriced.add(response.model)
+        else:
+            self.cost += cost
         return response
 
+    def spend(self) -> Spend:
+        """Token and cost totals for the conversation so far."""
+        trace = self.trace
+        return Spend(
+            uncached=trace.prompt_tokens
+            - trace.cache_read_tokens
+            - trace.cache_write_tokens,
+            cache_read=trace.cache_read_tokens,
+            cache_write=trace.cache_write_tokens,
+            output=trace.output_tokens,
+            cost=self.cost,
+            unpriced=frozenset(self.unpriced),
+        )
+
     def ask(self, question: str) -> str:
-        """Ask a question and return the answer, keeping the exchange in the history."""
+        """
+        Ask a question and return the answer, keeping the exchange in the history. With
+        `verbose`, prints the question's token use and estimated cost to stderr.
+        """
+        before = self.spend()
+        answer = self.answer(question)
+        if self.verbose:
+            after = self.spend()
+            print(f"  {usage_line(after - before, after)}", file=sys.stderr)
+        return answer
+
+    def answer(self, question: str) -> str:
+        """Run the tool loop for a question until the model answers or gives up."""
         self.messages.append(
             {
                 "role": "user",

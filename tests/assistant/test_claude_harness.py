@@ -7,7 +7,13 @@ import pytest
 from anthropic.types.beta import BetaMessage
 
 from assistant.benchmark import run
-from assistant.claude_harness import ClaudeConversation, claude_tools
+from assistant.claude_harness import (
+    ClaudeConversation,
+    Spend,
+    claude_tools,
+    response_cost,
+    usage_line,
+)
 from assistant.harness import QUERY_FUNCTIONS
 from config import ClaudeConfig
 
@@ -18,16 +24,21 @@ def fixture_db() -> Iterator[None]:
         yield
 
 
-def message(content: list[dict[str, Any]], stop_reason: str) -> BetaMessage:
+def message(
+    content: list[dict[str, Any]],
+    stop_reason: str,
+    model: str = "claude-sonnet-5-5",
+    usage: dict[str, int] | None = None,
+) -> BetaMessage:
     return BetaMessage.model_validate(
         {
             "id": "msg_1",
             "type": "message",
             "role": "assistant",
-            "model": "claude-opus-5-5",
+            "model": model,
             "content": content,
             "stop_reason": stop_reason,
-            "usage": {"input_tokens": 100, "output_tokens": 10},
+            "usage": {"input_tokens": 100, "output_tokens": 10} | (usage or {}),
         }
     )
 
@@ -37,8 +48,8 @@ def tool_use(name: str, **arguments: Any) -> BetaMessage:
     return message([block], "tool_use")
 
 
-def text(content: str, stop_reason: str = "end_turn") -> BetaMessage:
-    return message([{"type": "text", "text": content}], stop_reason)
+def text(content: str, stop_reason: str = "end_turn", **usage: int) -> BetaMessage:
+    return message([{"type": "text", "text": content}], stop_reason, usage=usage)
 
 
 class ScriptedMessages:
@@ -124,3 +135,68 @@ def test_refusal_and_max_tokens() -> None:
     conversation, _ = converse([message([], "refusal"), text("partial", "max_tokens")])
     assert "declined" in conversation.ask("q")
     assert "max_tokens" in conversation.ask("q2")
+
+
+def test_cost_counts_every_kind_of_token() -> None:
+    reply = message(
+        [],
+        "end_turn",
+        usage={
+            "input_tokens": 1_000,
+            "cache_read_input_tokens": 40_000,
+            "cache_creation_input_tokens": 2_000,
+            "output_tokens": 500,
+        },
+    )
+    # Sonnet 5.5: $2 in, $0.20 cache read, $2.50 cache write, $10 out per million.
+    expected = (1_000 * 2 + 40_000 * 0.20 + 2_000 * 2.50 + 500 * 10) / 1_000_000
+    assert response_cost(reply) == pytest.approx(expected)
+
+
+def test_fallback_model_is_priced_at_its_own_rates() -> None:
+    opus = message(
+        [], "end_turn", model="claude-opus-5-5", usage={"input_tokens": 1_000_000}
+    )
+    assert response_cost(opus) == pytest.approx(4 + 10 * 20 / 1_000_000)
+
+
+def test_unknown_model_has_no_price() -> None:
+    reply = message([], "end_turn", model="claude-someday-9")
+    assert response_cost(reply) is None
+    spend = Spend(100, 0, 0, 10, 0.0, frozenset({"claude-someday-9"}))
+    line = usage_line(spend, spend)
+    assert line.endswith("(no price for claude-someday-9)")
+    assert "$" not in line
+
+
+def test_trace_splits_cached_input() -> None:
+    conversation, _ = converse(
+        [text("a", cache_read_input_tokens=500, cache_creation_input_tokens=50)]
+    )
+    conversation.ask("q")
+    trace = conversation.trace
+    assert (trace.prompt_tokens, trace.cache_read_tokens, trace.cache_write_tokens) == (
+        650,
+        500,
+        50,
+    )
+
+
+def test_verbose_ask_prints_question_and_session_cost(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    replies = [
+        text("a", input_tokens=10_000, output_tokens=1_000),
+        text("b", input_tokens=20_000, output_tokens=1_000),
+    ]
+    conversation, _ = converse(replies)
+    conversation.verbose = True
+    conversation.ask("q1")
+    conversation.ask("q2")
+    lines = capsys.readouterr().err.splitlines()
+    # $0.02 + $0.01 for the first question, $0.04 + $0.01 for the second.
+    tokens = "in + 0 cached + 0 cache write, 1,000 out"
+    assert lines == [
+        f"  usage: 10,000 {tokens} · ~$0.03 (session ~$0.03)",
+        f"  usage: 20,000 {tokens} · ~$0.05 (session ~$0.08)",
+    ]
