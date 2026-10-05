@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from vpop.fsutil import read_env_file
 from vpop.paths import remote_data_locations_env
 
 
@@ -15,13 +16,7 @@ def _load_env_file(path: Path) -> None:
             f"Missing remote data locations at {path}. "
             "Create it with MESSAGES_BACKUP_FOLDER_ID=..."
         )
-    for raw_line in path.read_text().splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        key = key.strip()
-        value = value.strip().strip("'\"")
+    for key, value in read_env_file(path).items():
         os.environ.setdefault(key, value)
 
 

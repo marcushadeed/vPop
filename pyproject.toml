@@ -45,3 +45,7 @@ profile = "black"
 [[tool.mypy.overrides]]
 module = ["google_auth_oauthlib.*", "googleapiclient.*"]
 ignore_missing_imports = true
+
+[tool.ruff.lint.flake8-bugbear]
+# `config.setting` returns a dataclass `field(...)`, which is safe as a default.
+extend-immutable-calls = ["vpop.config.setting"]

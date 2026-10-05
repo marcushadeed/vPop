@@ -26,6 +26,7 @@ from vpop.assistant.claude_harness import (
 )
 from vpop.assistant.harness import AuthError
 from vpop.config import Config, set_setting
+from vpop.fsutil import read_env_file, write_private
 from vpop.paths import anthropic_env_path, config_path
 
 KEY_VAR = "ANTHROPIC_API_KEY"
@@ -35,29 +36,6 @@ EXPORTED_VARS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
 def mask(secret: str) -> str:
     """Enough of a key to tell keys apart: `sk-ant-…a1b2`."""
     return f"{secret[:7]}…{secret[-4:]}" if len(secret) > 15 else "…"
-
-
-def read_env_file(path: Path) -> dict[str, str]:
-    """The KEY=VALUE pairs in an env file, the way `load_anthropic_env` reads them."""
-    if not path.exists():
-        return {}
-    pairs: dict[str, str] = {}
-    for raw_line in path.read_text().splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        pairs[key.strip()] = value.strip().strip("'\"")
-    return pairs
-
-
-def write_private(path: Path, text: str) -> None:
-    """Write a file only its owner can read, tightening an existing file's permissions."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as file:
-        file.write(text)
-    path.chmod(0o600)
 
 
 def save_key(path: Path, key: str) -> None:

@@ -1,4 +1,4 @@
-"""Tests for reading and generating the config file."""
+"""Tests for reading and generating the config file, and the paths it lives at."""
 
 from pathlib import Path
 
@@ -75,8 +75,10 @@ def test_init_refuses_to_overwrite(tmp_path: Path) -> None:
         ("[olama]\nmodel = 'x'\n", "unknown section"),
         ("[assistant]\nlocal_model = 'no'\n", "must be bool"),
         ("[ollama]\nnum_ctx = true\n", "must be int"),
-        ("[ollama]\nthink = 'maybe'\n", "ollama.think must be one of"),
+        ("[ollama]\nthink = 'maybe'\n", "ollama.think must be one of on, off, default"),
         ("[claude]\neffort = 'huge'\n", "claude.effort must be one of"),
+        ("[assistant]\nmax_rounds = 0\n", "max_rounds must be at least 1"),
+        ("[ollama]\nnum_ctx = 512\n", "num_ctx must be at least 2048"),
         ("assistant = 3\n", "must be a table"),
         ("[assistant\n", "invalid TOML"),
     ],
@@ -132,7 +134,7 @@ def test_existing_home_config_is_used(homes: tuple[Path, Path]) -> None:
 
 
 def test_existing_xdg_config_wins(homes: tuple[Path, Path]) -> None:
-    for path, local in zip(homes, ("true", "false")):
+    for path, local in zip(homes, ("true", "false"), strict=True):
         path.parent.mkdir(parents=True)
         path.write_text(f"[assistant]\nlocal_model = {local}\n")
     assert load_config().assistant.local_model is True
@@ -200,3 +202,10 @@ def test_set_setting_refuses_bad_value(tmp_path: Path) -> None:
     with pytest.raises(ConfigError):
         set_setting(path, "claude", "effort", "extreme")
     assert path.read_text() == before
+
+
+def test_set_setting_keeps_file_permissions(tmp_path: Path) -> None:
+    path = write_default_config(tmp_path / "config.toml")
+    path.chmod(0o600)
+    set_setting(path, "claude", "effort", "high")
+    assert path.stat().st_mode & 0o777 == 0o600

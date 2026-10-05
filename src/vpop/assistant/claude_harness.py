@@ -31,6 +31,7 @@ from vpop.assistant.harness import (
     today_label,
 )
 from vpop.config import AssistantConfig, ClaudeConfig
+from vpop.fsutil import read_env_file
 from vpop.paths import anthropic_env_path
 
 log = logging.getLogger(__name__)
@@ -127,18 +128,10 @@ def load_anthropic_env() -> set[str]:
     The file is optional: the SDK also finds an exported `ANTHROPIC_API_KEY` or a profile
     from the Anthropic CLI's `ant auth login`.
     """
-    path = anthropic_env_path()
-    if not path.exists():
-        return set()
     loaded: set[str] = set()
-    for raw_line in path.read_text().splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        key = key.strip()
+    for key, value in read_env_file(anthropic_env_path()).items():
         if key not in os.environ:
-            os.environ[key] = value.strip().strip("'\"")
+            os.environ[key] = value
             loaded.add(key)
     return loaded
 
