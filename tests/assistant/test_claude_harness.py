@@ -9,8 +9,7 @@ import httpx2
 import pytest
 from anthropic.types.beta import BetaMessage
 
-from assistant.benchmark import run
-from assistant.claude_harness import (
+from vpop.assistant.claude_harness import (
     ClaudeConversation,
     Spend,
     claude_tools,
@@ -18,8 +17,9 @@ from assistant.claude_harness import (
     response_cost,
     usage_line,
 )
-from assistant.harness import QUERY_FUNCTIONS, AuthError
-from config import ClaudeConfig
+from vpop.assistant.harness import QUERY_FUNCTIONS, AuthError
+from vpop.benchmark import run
+from vpop.config import ClaudeConfig
 
 
 @pytest.fixture(scope="module", autouse=True)

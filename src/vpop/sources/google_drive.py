@@ -11,7 +11,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
-from paths import oauth_credentials_path, oauth_token_path
+from vpop.paths import oauth_credentials_path, oauth_token_path
 
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 

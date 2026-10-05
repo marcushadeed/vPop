@@ -18,15 +18,15 @@ from pathlib import Path
 
 import anthropic
 
-from assistant.claude_harness import (
+from vpop.assistant.claude_harness import (
     API_KEYS_URL,
     credential_source,
     load_anthropic_env,
     make_client,
 )
-from assistant.harness import AuthError
-from config import Config, config_path, set_setting
-from paths import anthropic_env_path
+from vpop.assistant.harness import AuthError
+from vpop.config import Config, config_path, set_setting
+from vpop.paths import anthropic_env_path
 
 KEY_VAR = "ANTHROPIC_API_KEY"
 EXPORTED_VARS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")

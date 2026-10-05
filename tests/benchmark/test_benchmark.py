@@ -9,12 +9,12 @@ from typing import Any
 import ollama
 import pytest
 
-from assistant.benchmark import cases, fixture, run
-from assistant.benchmark.cases import CASES, Case
-from assistant.benchmark.grading import grade, numbers_in, phone_numbers_in
-from assistant.harness import Conversation, Settings, ToolCall, Trace
-from config import Config
-from data_gathering.file_management.data_paths import db_path
+from vpop.assistant.harness import Conversation, Settings, ToolCall, Trace
+from vpop.benchmark import cases, fixture, run
+from vpop.benchmark.cases import CASES, Case
+from vpop.benchmark.grading import grade, numbers_in, phone_numbers_in
+from vpop.config import Config
+from vpop.data_paths import db_path
 
 
 @pytest.fixture(scope="module")

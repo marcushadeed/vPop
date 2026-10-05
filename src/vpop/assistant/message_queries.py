@@ -10,14 +10,14 @@ import re
 import sqlite3
 from contextlib import closing
 
-from data_gathering.android_messages.xml_to_sqlite import (
+from vpop.data_paths import db_path
+from vpop.sources.android_messages.xml_to_sqlite import (
     Direction,
     normalize_address,
 )
-from data_gathering.android_messages.xml_to_sqlite import (
+from vpop.sources.android_messages.xml_to_sqlite import (
     thread_key as normalize_thread_key,
 )
-from data_gathering.file_management.data_paths import db_path
 
 BODY_CHARS = 300
 SQL_CELL_CHARS = 300

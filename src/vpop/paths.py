@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from config import config_dir
+from vpop.config import config_dir
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def oauth_credentials_path() -> Path:

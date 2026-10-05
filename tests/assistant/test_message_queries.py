@@ -6,15 +6,15 @@ from pathlib import Path
 
 import pytest
 
-from assistant import message_queries
-from assistant.message_queries import (
+from vpop.assistant import message_queries
+from vpop.assistant.message_queries import (
     find_threads,
     read_thread,
     run_sql,
     search_messages,
 )
-from data_gathering.android_messages import xml_to_sqlite
-from data_gathering.android_messages.xml_to_sqlite import (
+from vpop.sources.android_messages import xml_to_sqlite
+from vpop.sources.android_messages.xml_to_sqlite import (
     Direction,
     Message,
     add_messages_to_sqlite,

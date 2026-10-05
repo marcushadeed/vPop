@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from assistant import auth
-from config import Config, load_config, parse_config
+from vpop.assistant import auth
+from vpop.config import Config, load_config, parse_config
 
 
 def mode(path: Path) -> int:

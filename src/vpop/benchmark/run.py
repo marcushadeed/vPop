@@ -23,11 +23,11 @@ from typing import Any
 
 import ollama
 
-from assistant.benchmark import fixture
-from assistant.benchmark.cases import CASES, Case
-from assistant.benchmark.grading import grade
-from assistant.harness import Conversation, Settings, parse_think
-from paths import REPO_ROOT
+from vpop.assistant.harness import Conversation, Settings, parse_think
+from vpop.benchmark import fixture
+from vpop.benchmark.cases import CASES, Case
+from vpop.benchmark.grading import grade
+from vpop.paths import REPO_ROOT
 
 RESULTS_DIR = REPO_ROOT / "benchmarks" / "results"
 

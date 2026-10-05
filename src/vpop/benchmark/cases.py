@@ -7,9 +7,9 @@ changing `fixture.ACTIVITY` can't silently leave a case with a stale number.
 
 from dataclasses import dataclass
 
-from assistant.benchmark import fixture
-from assistant.benchmark.fixture import JORDAN_NEW, JORDAN_OLD, MOM, PRIYA
-from data_gathering.android_messages.xml_to_sqlite import Direction
+from vpop.benchmark import fixture
+from vpop.benchmark.fixture import JORDAN_NEW, JORDAN_OLD, MOM, PRIYA
+from vpop.sources.android_messages.xml_to_sqlite import Direction
 
 # Phrasings of "no" / "not found", for questions whose honest answer is that nothing matches.
 NEGATIVE = r"\b(no|not|never|didn'?t|doesn'?t|couldn'?t|can'?t|none|nothing|unable)\b"

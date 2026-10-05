@@ -15,7 +15,7 @@ from typing import NamedTuple
 
 from lxml.etree import _Element, iterparse
 
-from data_gathering.file_management.data_paths import db_path
+from vpop.data_paths import db_path
 
 
 class Direction(Enum):

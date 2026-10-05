@@ -11,7 +11,7 @@ import random
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 
-from data_gathering.android_messages.xml_to_sqlite import (
+from vpop.sources.android_messages.xml_to_sqlite import (
     Direction,
     Message,
     add_messages_to_sqlite,

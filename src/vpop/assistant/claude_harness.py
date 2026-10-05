@@ -19,7 +19,7 @@ from anthropic.types.beta import (
     BetaToolParam,
 )
 
-from assistant.harness import (
+from vpop.assistant.harness import (
     SYSTEM_PROMPT,
     TOOLS,
     AuthError,
@@ -30,8 +30,8 @@ from assistant.harness import (
     log_tool_call,
     today_label,
 )
-from config import AssistantConfig, ClaudeConfig
-from paths import anthropic_env_path
+from vpop.config import AssistantConfig, ClaudeConfig
+from vpop.paths import anthropic_env_path
 
 # Where to create an API key.
 API_KEYS_URL = "https://platform.claude.com/settings/keys"

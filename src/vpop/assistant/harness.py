@@ -18,11 +18,11 @@ from typing import TYPE_CHECKING, Any
 import ollama
 from ollama._utils import convert_function_to_tool
 
-from assistant import message_queries
-from config import AssistantConfig, Config, OllamaConfig, load_config
+from vpop.assistant import message_queries
+from vpop.config import AssistantConfig, Config, OllamaConfig, load_config
 
 if TYPE_CHECKING:
-    from assistant.claude_harness import ClaudeConversation
+    from vpop.assistant.claude_harness import ClaudeConversation
 
 
 def parse_think(value: str) -> bool | None:
@@ -267,7 +267,7 @@ def new_conversation(
     if config.assistant.local_model:
         return Conversation(settings=Settings.from_config(config))
     # Deferred so a local-only setup never imports the Anthropic SDK.
-    from assistant.claude_harness import (  # pylint: disable=import-outside-toplevel
+    from vpop.assistant.claude_harness import (  # pylint: disable=import-outside-toplevel
         ClaudeConversation,
     )
 

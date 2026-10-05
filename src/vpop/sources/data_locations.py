@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from paths import remote_data_locations_env
+from vpop.paths import remote_data_locations_env
 
 
 def _load_env_file(path: Path) -> None:

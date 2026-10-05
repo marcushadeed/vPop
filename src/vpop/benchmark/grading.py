@@ -3,8 +3,8 @@
 import re
 from dataclasses import dataclass
 
-from assistant.benchmark.cases import Case
-from assistant.harness import Trace
+from vpop.assistant.harness import Trace
+from vpop.benchmark.cases import Case
 
 
 @dataclass(frozen=True)

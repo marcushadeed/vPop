@@ -5,10 +5,11 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python Debugger: main.py",
+            "name": "Python Debugger: vpop ask",
             "type": "debugpy",
             "request": "launch",
-            "program": "src/main.py",
+            "module": "vpop",
+            "args": ["ask"],
             "console": "integratedTerminal",
             "python": "${workspaceFolder}/.venv/bin/python"
         }

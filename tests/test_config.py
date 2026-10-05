@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from assistant.harness import Conversation, Settings, new_conversation
-from config import (
+from vpop.assistant.harness import Conversation, Settings, new_conversation
+from vpop.config import (
     ClaudeConfig,
     Config,
     ConfigError,
@@ -158,7 +158,7 @@ def test_local_model_picks_ollama_conversation() -> None:
 def test_remote_model_picks_claude_conversation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from assistant.claude_harness import ClaudeConversation
+    from vpop.assistant.claude_harness import ClaudeConversation
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     config = parse_config("[assistant]\nlocal_model = false\nmax_rounds = 5\n")

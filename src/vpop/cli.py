@@ -4,7 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from config import (
+from vpop.config import (
     Config,
     ConfigError,
     config_path,
@@ -18,18 +18,22 @@ def main():
     """Entry point for the vpop CLI. With no subcommand, runs `sync`."""
     parser = argparse.ArgumentParser(prog="vpop")
     subcommands = parser.add_subparsers(dest="command")
-    subcommands.add_parser("sync", help="update database with latest source information")
+    subcommands.add_parser(
+        "sync", help="update database with latest source information"
+    )
     ask_parser = subcommands.add_parser(
         "ask", help="ask vPop a question about your data"
     )
-    ask_parser.add_argument("question", nargs="*", help="the question to ask. Leave empty to start a conversation")
+    ask_parser.add_argument(
+        "question",
+        nargs="*",
+        help="the question to ask. Leave empty to start a conversation",
+    )
     config_parser = subcommands.add_parser(
         "config", help="write or show the config file"
     )
     config_actions = config_parser.add_subparsers(dest="config_command", required=True)
-    init_parser = config_actions.add_parser(
-        "init", help="write a default config file"
-    )
+    init_parser = config_actions.add_parser("init", help="write a default config file")
     init_parser.add_argument(
         "--force", action="store_true", help="overwrite an existing config file"
     )
@@ -94,7 +98,7 @@ def main():
     elif args.command == "bench":
         bench(args)
     else:
-        from data_gathering.android_messages.sync import sync
+        from vpop.sources.android_messages.sync import sync
 
         sync()
 
@@ -109,8 +113,8 @@ def load_or_exit() -> Config:
 
 def ask_command(args: argparse.Namespace) -> None:
     """Answer one question, or start a conversation with none."""
-    from assistant.auth import offer_login
-    from assistant.harness import AuthError, MissingCredentialsError, ask, repl
+    from vpop.assistant.auth import offer_login
+    from vpop.assistant.harness import AuthError, MissingCredentialsError, ask, repl
 
     config = load_or_exit()
     for attempt in range(2):
@@ -130,7 +134,7 @@ def ask_command(args: argparse.Namespace) -> None:
 
 def auth_command(args: argparse.Namespace) -> None:
     """Set up, check or remove the Anthropic credentials."""
-    from assistant import auth
+    from vpop.assistant import auth
 
     if args.auth_command == "login":
         if not auth.login(load_or_exit()):
@@ -157,8 +161,8 @@ def config_command(args: argparse.Namespace) -> None:
 
 def bench(args: argparse.Namespace) -> None:
     """Run, list or compare benchmark cases."""
-    from assistant.benchmark import run
-    from assistant.benchmark.cases import CASES
+    from vpop.benchmark import run
+    from vpop.benchmark.cases import CASES
 
     if args.list:
         for case in CASES:

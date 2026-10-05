@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 from lxml import etree
 
-from data_gathering.android_messages import xml_to_sqlite
-from data_gathering.android_messages.xml_to_sqlite import (
+from vpop.sources.android_messages import xml_to_sqlite
+from vpop.sources.android_messages.xml_to_sqlite import (
     Direction,
     Message,
     add_messages_to_sqlite,
