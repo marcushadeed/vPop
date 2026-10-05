@@ -96,6 +96,22 @@ def test_typing_cancels_a_pending_quit() -> None:
     assert type_into(f"{CTRL_C}a{CTRL_C}{CTRL_C}b{ENTER}") == "b"
 
 
+@pytest.mark.parametrize("keys", [f"{CTRL_C}{CTRL_C}", CTRL_D])
+def test_quitting_clears_the_box(keys: str) -> None:
+    # Drawn once while typing; a box left behind on quitting would be drawn again.
+    screen = Screen()
+    with pytest.raises(EOFError):
+        type_into(keys, screen=screen)
+    assert screen.text.count("›") == 1
+
+
+def test_sending_leaves_the_line_in_the_transcript() -> None:
+    screen = Screen()
+    type_into(f"hello{ENTER}", screen=screen)
+    assert screen.text.count("›") == 2
+    assert screen.text.rstrip().endswith("› hello")
+
+
 def test_ctrl_d_on_an_empty_line_quits() -> None:
     with pytest.raises(EOFError):
         type_into(f"{CTRL_D}not read{ENTER}")

@@ -184,14 +184,19 @@ class Editor:
         if event.current_buffer.text:
             event.current_buffer.reset()
         elif self.quit_pending:
-            event.app.exit(exception=EOFError())
+            self.leave(event)
         else:
             self.quit_pending = True
 
-    @staticmethod
-    def quit(event: KeyPressEvent) -> None:
+    def quit(self, event: KeyPressEvent) -> None:
         """Ctrl+D: quit on an empty line, else delete the character under the cursor."""
         if event.current_buffer.text:
             event.current_buffer.delete()
         else:
-            event.app.exit(exception=EOFError())
+            self.leave(event)
+
+    @staticmethod
+    def leave(event: KeyPressEvent) -> None:
+        """End the read with `EOFError`, clearing the box rather than leaving an empty `›`."""
+        event.app.erase_when_done = True
+        event.app.exit(exception=EOFError())
