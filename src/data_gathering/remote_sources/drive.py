@@ -11,16 +11,17 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
-from paths import OAUTH_CREDENTIALS_PATH, OAUTH_TOKEN_PATH
+from paths import oauth_credentials_path, oauth_token_path
 
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 
 
 def _get_credentials() -> Credentials:
     """Load cached OAuth credentials, refreshing or requesting consent as needed."""
+    token_path = oauth_token_path()
     creds = None
-    if OAUTH_TOKEN_PATH.exists():
-        creds = Credentials.from_authorized_user_file(str(OAUTH_TOKEN_PATH), SCOPES)
+    if token_path.exists():
+        creds = Credentials.from_authorized_user_file(str(token_path), SCOPES)
 
     if creds and creds.valid:
         return creds
@@ -34,12 +35,12 @@ def _get_credentials() -> Credentials:
 
     if not creds or not creds.valid:
         flow = InstalledAppFlow.from_client_secrets_file(
-            str(OAUTH_CREDENTIALS_PATH), SCOPES
+            str(oauth_credentials_path()), SCOPES
         )
         creds = flow.run_local_server(port=0)
 
-    OAUTH_TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
-    OAUTH_TOKEN_PATH.write_text(creds.to_json())
+    token_path.parent.mkdir(parents=True, exist_ok=True)
+    token_path.write_text(creds.to_json())
 
     return creds
 
