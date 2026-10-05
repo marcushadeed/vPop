@@ -15,6 +15,7 @@ Tables:
 
 import sqlite3
 from collections.abc import Callable
+from contextlib import closing
 from pathlib import Path
 
 SCHEMA_VERSION = 1
@@ -157,6 +158,15 @@ def connect_readonly(path: Path) -> sqlite3.Connection:
 def check_readable(path: Path) -> None:
     """Raise `DatabaseError` unless the database exists and has the current schema."""
     connect_readonly(path).close()
+
+
+def message_summary(path: Path) -> tuple[int, str | None]:
+    """How many messages the database holds, and the newest one's timestamp (None if empty)."""
+    with closing(connect_readonly(path)) as conn:
+        count, newest = conn.execute(
+            "SELECT COALESCE(SUM(message_count), 0), MAX(last) FROM threads"
+        ).fetchone()
+    return int(count), newest
 
 
 def refresh_threads(conn: sqlite3.Connection) -> None:

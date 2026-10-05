@@ -2,9 +2,9 @@
 Every file location vpop uses, in one place.
 
 Settings and secrets live in the config directory (`$XDG_CONFIG_HOME/vpop`, else
-`~/.config/vpop`); downloaded backups, the database and benchmark results live in the data
-directory (`$XDG_DATA_HOME/vpop`, else `~/.local/share/vpop`). These functions only compute
-paths: whoever writes a file creates its directory.
+`~/.config/vpop`); downloaded backups, the database, chat history and benchmark results live
+in the data directory (`$XDG_DATA_HOME/vpop`, else `~/.local/share/vpop`). These functions
+only compute paths: whoever writes a file creates its directory.
 """
 
 import os
@@ -73,6 +73,11 @@ def db_path() -> Path:
 def android_messages_raw_dir() -> Path:
     """Downloaded Android Messages XML backups, kept as the source of truth for the DB."""
     return data_dir() / "raw" / "android-messages"
+
+
+def history_path() -> Path:
+    """Questions typed into the chat, recalled with the up and down arrows."""
+    return data_dir() / "history"
 
 
 def bench_results_dir() -> Path:

@@ -70,3 +70,25 @@ def test_import_tracking_notices_changed_files(tmp_path: Path) -> None:
         assert db.already_imported(conn, "src", backup)
         backup.write_text("<smses>changed</smses>")
         assert not db.already_imported(conn, "src", backup)
+
+
+def test_message_summary_counts_messages_and_finds_the_newest(tmp_path: Path) -> None:
+    path = build_db(
+        tmp_path / "vpop.db",
+        [
+            make_message(body="a", timestamp="2026-08-01 09:00:00"),
+            make_message(body="b", timestamp="2026-08-03 21:15:00"),
+            make_message(
+                thread_key="+13015550000",
+                sender="+13015550000",
+                body="c",
+                timestamp="2026-08-02 12:00:00",
+            ),
+        ],
+    )
+    assert db.message_summary(path) == (3, "2026-08-03 21:15:00")
+
+
+def test_message_summary_of_an_empty_database(tmp_path: Path) -> None:
+    path = build_db(tmp_path / "vpop.db", [])
+    assert db.message_summary(path) == (0, None)
