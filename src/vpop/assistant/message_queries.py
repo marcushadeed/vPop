@@ -10,12 +10,13 @@ import re
 import sqlite3
 from contextlib import closing
 
+from vpop.db import connect_readonly
 from vpop.paths import db_path
-from vpop.sources.android_messages.xml_to_sqlite import (
+from vpop.sources.android_messages.model import (
     Direction,
     normalize_address,
 )
-from vpop.sources.android_messages.xml_to_sqlite import (
+from vpop.sources.android_messages.model import (
     thread_key as normalize_thread_key,
 )
 
@@ -36,18 +37,8 @@ ALLOWED_SQL_ACTIONS = {
 
 
 def connect() -> sqlite3.Connection:
-    """
-    Open the database read-only.
-
-    `mode=ro` stops writes at the file level and `query_only` stops them at the statement level,
-    so a query that slips past `run_sql`'s checks still can't change anything.
-    """
-    path = db_path()
-    if not path.exists():
-        raise FileNotFoundError(f"No database at {path}. Run `vpop sync` first.")
-    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
-    conn.execute("PRAGMA query_only = ON")
-    return conn
+    """Open the database read-only (see `db.connect_readonly`)."""
+    return connect_readonly(db_path())
 
 
 def one_line(text: str, limit: int = BODY_CHARS) -> str:

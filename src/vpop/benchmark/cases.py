@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 from vpop.benchmark import fixture
 from vpop.benchmark.fixture import JORDAN_NEW, JORDAN_OLD, MOM, PRIYA
-from vpop.sources.android_messages.xml_to_sqlite import Direction
+from vpop.sources.android_messages.model import Direction
 
 # Phrasings of "no" / "not found", for questions whose honest answer is that nothing matches.
 NEGATIVE = r"\b(no|not|never|didn'?t|doesn'?t|couldn'?t|can'?t|none|nothing|unable)\b"

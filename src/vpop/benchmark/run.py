@@ -27,6 +27,7 @@ from vpop.assistant.harness import Conversation, Settings, parse_think
 from vpop.benchmark import fixture
 from vpop.benchmark.cases import CASES, Case
 from vpop.benchmark.grading import grade
+from vpop.paths import db_path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RESULTS_DIR = REPO_ROOT / "benchmarks" / "results"
@@ -45,7 +46,7 @@ def fixture_data_dir() -> Iterator[None]:
     with tempfile.TemporaryDirectory(prefix="vpop-bench-") as tmp:
         os.environ["XDG_DATA_HOME"] = tmp
         try:
-            fixture.build_fixture_db()
+            fixture.build_fixture_db(db_path())
             yield
         finally:
             if previous is None:

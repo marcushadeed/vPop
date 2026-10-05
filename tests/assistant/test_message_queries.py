@@ -5,6 +5,7 @@ from contextlib import closing
 from pathlib import Path
 
 import pytest
+from helpers import SAM, build_db, make_message, outgoing
 
 from vpop.assistant import message_queries
 from vpop.assistant.message_queries import (
@@ -13,42 +14,18 @@ from vpop.assistant.message_queries import (
     run_sql,
     search_messages,
 )
-from vpop.sources.android_messages import xml_to_sqlite
-from vpop.sources.android_messages.xml_to_sqlite import (
-    Direction,
-    Message,
-    add_messages_to_sqlite,
-)
+from vpop.db import DatabaseError
 
-SAM = "+12405551234"
 ALEX = "+13015550000"
 GROUP = f"{SAM},{ALEX}"
-
-
-def make_message(**overrides: object) -> Message:
-    fields: dict[str, object] = {
-        "direction": Direction.INCOMING,
-        "was_sent": True,
-        "thread_key": SAM,
-        "sender": SAM,
-        "contact_name": "Sam Smith",
-        "body": "hello",
-        "timestamp": "2026-08-01 09:00:00",
-    }
-    fields.update(overrides)
-    return Message(**fields)  # type: ignore[arg-type]
-
-
-def outgoing(**overrides: object) -> Message:
-    return make_message(direction=Direction.OUTGOING, sender="", **overrides)
 
 
 @pytest.fixture
 def db_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     path = tmp_path / "vpop.db"
-    monkeypatch.setattr(xml_to_sqlite, "db_path", lambda: path)
     monkeypatch.setattr(message_queries, "db_path", lambda: path)
-    add_messages_to_sqlite(
+    build_db(
+        path,
         [
             make_message(
                 body="I'm moving to Denver in June", timestamp="2026-03-01 10:00:00"
@@ -69,7 +46,7 @@ def db_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
                 body="group hello",
                 timestamp="2026-05-03 18:00:00",
             ),
-        ]
+        ],
     )
     return path
 
@@ -143,7 +120,7 @@ def test_search_more_line_and_offset(db_file: Path) -> None:
 
 
 def test_body_is_truncated_to_one_line(db_file: Path) -> None:
-    add_messages_to_sqlite([make_message(body="line one\nline two " + "x" * 500)])
+    build_db(db_file, [make_message(body="line one\nline two " + "x" * 500)])
     result = search_messages(text="line one")
     body = result.split(" | ")[-1]
     assert body.startswith("line one ⏎ line two")
@@ -244,5 +221,5 @@ def test_connect_is_read_only(db_file: Path) -> None:
 
 def test_missing_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(message_queries, "db_path", lambda: tmp_path / "none.db")
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(DatabaseError):
         find_threads("sam")

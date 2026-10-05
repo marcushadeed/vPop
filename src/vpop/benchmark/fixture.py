@@ -9,13 +9,15 @@ asks about, so a fact can only be found where it was planted.
 
 import random
 from collections.abc import Callable, Iterator
+from contextlib import closing
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from functools import cache
+from pathlib import Path
 
-from vpop.sources.android_messages.xml_to_sqlite import (
-    Direction,
-    Message,
-    add_messages_to_sqlite,
-)
+from vpop import db
+from vpop.sources.android_messages.model import Direction, Message
+from vpop.sources.android_messages.store import insert_messages
 
 # The date the model is told it is. Filler stops before it; the last facts land the day before.
 TODAY = "2026-09-15"
@@ -253,8 +255,14 @@ def thread_key(thread: Thread) -> str:
 
 
 def message(thread: Thread, timestamp: str, sender: str, body: str) -> Message:
-    """Build a stored message; `sender` is `me` for outgoing."""
+    """
+    Build a stored message; `sender` is `me` for outgoing. The timestamp is read as UTC for
+    `epoch_ms`, so the database is the same whatever time zone the benchmark runs in.
+    """
     outgoing = sender == ME
+    epoch_ms = int(
+        datetime.fromisoformat(timestamp).replace(tzinfo=UTC).timestamp() * 1000
+    )
     return Message(
         direction=Direction.OUTGOING if outgoing else Direction.INCOMING,
         was_sent=True,
@@ -264,6 +272,7 @@ def message(thread: Thread, timestamp: str, sender: str, body: str) -> Message:
         if isinstance(thread, Contact)
         else thread.contact_name,
         body=body,
+        epoch_ms=epoch_ms,
         timestamp=timestamp,
     )
 
@@ -288,10 +297,13 @@ def filler(rng: random.Random) -> list[Message]:
     return out
 
 
-def all_messages() -> list[Message]:
+@cache
+def all_messages() -> tuple[Message, ...]:
     """Every message in the fixture, filler and facts, in timestamp order."""
     planted = [message(f.thread, f.timestamp, f.sender, f.body) for f in FACTS]
-    return sorted(filler(random.Random(SEED)) + planted, key=lambda m: m.timestamp)
+    return tuple(
+        sorted(filler(random.Random(SEED)) + planted, key=lambda m: m.timestamp)
+    )
 
 
 def count(predicate: Callable[[Message], bool]) -> int:
@@ -299,6 +311,7 @@ def count(predicate: Callable[[Message], bool]) -> int:
     return sum(1 for m in all_messages() if predicate(m))
 
 
-def build_fixture_db() -> None:
-    """Write the fixture into the database at `db_path()` (point it with XDG_DATA_HOME)."""
-    add_messages_to_sqlite(all_messages())
+def build_fixture_db(path: Path) -> None:
+    """Write the fixture into a new database at `path`."""
+    with closing(db.connect(path)) as conn:
+        insert_messages(conn, all_messages())

@@ -58,8 +58,20 @@ def main():
         help="only show warnings and errors",
     )
     subcommands = parser.add_subparsers(dest="command")
-    subcommands.add_parser(
-        "sync", help="update database with latest source information"
+    # `vpop` with no command syncs, with these defaults.
+    parser.set_defaults(rebuild=False, offline=False)
+    sync_parser = subcommands.add_parser(
+        "sync", help="update the database from your message backups"
+    )
+    sync_parser.add_argument(
+        "--rebuild",
+        action="store_true",
+        help="recreate the database from every downloaded backup",
+    )
+    sync_parser.add_argument(
+        "--offline",
+        action="store_true",
+        help="don't download new backups, only import what's already downloaded",
     )
     ask_parser = subcommands.add_parser(
         "ask", help="ask vPop a question about your data"
@@ -139,7 +151,7 @@ def main():
     elif args.command == "bench":
         bench(args)
     else:
-        sync_command()
+        sync_command(args)
 
 
 def load_or_exit() -> Config:
@@ -150,16 +162,17 @@ def load_or_exit() -> Config:
         raise SystemExit(f"bad config: {exc}") from exc
 
 
-def sync_command() -> None:
+def sync_command(args: argparse.Namespace) -> None:
     """Download new backups and import them."""
     # pylint: disable=import-outside-toplevel
+    from vpop.db import DatabaseError
     from vpop.sources import SourceError
     from vpop.sources.android_messages.sync import sync
 
     config = load_or_exit()
     try:
-        sync(config)
-    except SourceError as exc:
+        sync(config, rebuild=args.rebuild, offline=args.offline)
+    except (SourceError, DatabaseError) as exc:
         raise SystemExit(f"error: {exc}") from exc
 
 
