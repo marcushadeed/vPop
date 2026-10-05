@@ -11,8 +11,14 @@ from vpop.benchmark import fixture
 from vpop.benchmark.fixture import JORDAN_NEW, JORDAN_OLD, MOM, PRIYA
 from vpop.sources.android_messages.model import Direction
 
-# Phrasings of "no" / "not found", for questions whose honest answer is that nothing matches.
-NEGATIVE = r"\b(no|not|never|didn'?t|doesn'?t|couldn'?t|can'?t|none|nothing|unable)\b"
+# A "no" / "not found" in the answer's first sentence, for questions whose honest answer is
+# that nothing matches. Anchoring it to the first sentence keeps "…not once but twice" deep in
+# an affirmative answer from counting.
+NEGATIVE = (
+    r"^[^.!?]*\b(no|not|never|didn'?t|doesn'?t|couldn'?t|can'?t|none|nothing|unable)\b"
+)
+# An answer that opens by affirming.
+AFFIRMATIVE = r"^\W*(yes|yeah|yep)\b"
 
 
 @dataclass(frozen=True)
@@ -37,6 +43,8 @@ class Case:  # pylint: disable=too-many-instance-attributes
     must_match: tuple[str, ...] = ()
     # No substring may appear.
     must_not_include: tuple[str, ...] = ()
+    # No regex may match anywhere.
+    must_not_match: tuple[str, ...] = ()
     # This number must appear in the answer (thousands separators allowed).
     expect_number: int | None = None
     # Every number must appear, in any common US format.
@@ -205,12 +213,14 @@ CASES: list[Case] = [
         question="Did Sam ever mention Paris?",
         tags=("negative",),
         must_match=(NEGATIVE,),
+        must_not_match=(AFFIRMATIVE,),
     ),
     Case(
         id="taylor-negative",
         question="What did Taylor say about the concert?",
         tags=("negative",),
         must_match=(NEGATIVE,),
+        must_not_match=(AFFIRMATIVE, r"\btaylor (said|wrote|texted|mentioned)\b"),
     ),
     # Multi-turn: the follow-up only makes sense with the first answer in context.
     Case(

@@ -1,5 +1,6 @@
 """Tests for the benchmark fixture, cases, grader and runner. No model is called."""
 
+import json
 import sqlite3
 from collections.abc import Iterator
 from contextlib import closing
@@ -14,7 +15,9 @@ from vpop.assistant.tools import MessageTools
 from vpop.benchmark import cases, fixture, run
 from vpop.benchmark.cases import CASES, Case
 from vpop.benchmark.grading import grade, numbers_in, phone_numbers_in
-from vpop.config import OllamaConfig
+from vpop.paths import bench_results_dir
+
+OLLAMA = run.BenchConfig("ollama", "m", "default")
 
 
 @pytest.fixture(scope="module")
@@ -123,6 +126,26 @@ def test_numbers_in_reads_thousands_separators() -> None:
 @pytest.mark.parametrize(
     "text",
     [
+        "on 2024-08-01",
+        "on 8/14/2026",
+        "at 8:30",
+        "on August 8th",
+        "on the 8th of August",
+        "from (202) 555-0108",
+    ],
+)
+def test_numbers_in_ignores_dates_times_and_phones(text: str) -> None:
+    assert 8 not in numbers_in(text)
+
+
+def test_select_cases_rejects_unknown_tags() -> None:
+    with pytest.raises(SystemExit, match="unknown tag"):
+        run.select_cases([], ["lookups"])
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
         "+12025550101",
         "(202) 555-0101",
         "202-555-0101",
@@ -160,10 +183,17 @@ def test_grade_text_checks() -> None:
 
 
 def test_grade_negative_pattern_handles_curly_apostrophe() -> None:
-    case = make_case(must_match=(cases.NEGATIVE,))
+    case = make_case(must_match=(cases.NEGATIVE,), must_not_match=(cases.AFFIRMATIVE,))
     trace = Trace(tool_calls=[ToolCall("search_messages", {}, "No messages match.")])
     assert grade(case, "Sam didn’t mention it.", trace).passed
+    assert grade(
+        case, "I searched Sam's messages and found no mention of Paris.", trace
+    ).passed
     assert not grade(case, "Sam said Paris was great.", trace).passed
+    assert not grade(
+        case, "Sam mentioned Paris twice. Not once did he say Rome.", trace
+    ).passed
+    assert not grade(case, "Yes, but not recently.", trace).passed
 
 
 def test_grade_fails_answers_without_tool_calls() -> None:
@@ -191,6 +221,13 @@ def test_grade_number_and_trace_checks() -> None:
     ]
 
 
+def test_bench_config_labels_and_settings() -> None:
+    assert OLLAMA.label == "m think=default"
+    claude = run.BenchConfig("claude", "claude-sonnet-5-5", "low")
+    assert claude.label == "claude-sonnet-5-5 effort=low"
+    assert claude.settings().effort == "low"  # type: ignore[union-attr]
+
+
 def test_run_case_records_trace_and_grades(tools: MessageTools) -> None:
     case = next(c for c in CASES if c.id == "sam-dog-name")
     client = ScriptedOllama(
@@ -200,7 +237,7 @@ def test_run_case_records_trace_and_grades(tools: MessageTools) -> None:
             text_reply("Sam's dog is named Biscuit."),
         ]
     )
-    record = run.run_case(case, OllamaConfig(model="m"), tools, client)
+    record = run.run_case(case, OLLAMA, tools, client)
     assert record["passed"]
     assert record["rounds"] == 3
     assert record["prompt_tokens"] == 300 and record["output_tokens"] == 30
@@ -214,8 +251,15 @@ def test_run_case_records_trace_and_grades(tools: MessageTools) -> None:
 def test_run_case_hits_round_limit(tools: MessageTools) -> None:
     case = make_case(must_include=("x",))
     client = ScriptedOllama([tool_reply("find_threads", name_or_number="Sam")] * 12)
-    record = run.run_case(case, OllamaConfig(model="m"), tools, client)
+    record = run.run_case(case, OLLAMA, tools, client)
     assert record["hit_round_limit"]
+    assert not record["passed"]
+
+
+def test_run_case_records_backend_errors(tools: MessageTools) -> None:
+    client = ScriptedOllama([ConnectionError("Failed to connect to Ollama.")])
+    record = run.run_case(make_case(), OLLAMA, tools, client)
+    assert record["error"] == "ConnectionError: Failed to connect to Ollama."
     assert not record["passed"]
 
 
@@ -228,9 +272,23 @@ def test_run_case_multi_turn_grades_last_answer(tools: MessageTools) -> None:
             text_reply("Adams Morgan."),
         ]
     )
-    record = run.run_case(case, OllamaConfig(model="m"), tools, client)
+    record = run.run_case(case, OLLAMA, tools, client)
     assert record["answers"] == ["Casa Verde.", "Adams Morgan."]
     assert record["passed"]
+
+
+def test_run_writes_results_to_the_data_dir(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    client = ScriptedOllama(
+        [tool_reply("find_threads", name_or_number="Sam"), text_reply("Biscuit")]
+    )
+    monkeypatch.setattr(run, "ollama_client", lambda _: client)
+    path = run.run([OLLAMA], case_ids=["sam-dog-name"])
+    assert path.parent == bench_results_dir()
+    [record] = [json.loads(line) for line in path.read_text().splitlines()]
+    assert record["passed"] and record["provider"] == "ollama"
+    assert "results:" in capsys.readouterr().out
 
 
 def test_matrix_flags_disagreement() -> None:

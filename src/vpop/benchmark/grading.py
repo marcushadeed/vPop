@@ -6,6 +6,24 @@ from dataclasses import dataclass
 from vpop.assistant.conversation import Trace
 from vpop.benchmark.cases import Case
 
+MONTHS = r"(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?"
+PHONE = r"\+?1?[\s.-]?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}"
+# Numbers that are part of a date, time or phone number, which a count check must ignore:
+# a count of 8 shouldn't be "found" in "2024-08-01".
+NOT_COUNTS = re.compile(
+    "|".join(
+        (
+            r"\d{4}-\d{1,2}(-\d{1,2})?",
+            r"\d{1,2}/\d{1,2}(/\d{2,4})?",
+            r"\d{1,2}:\d{2}(:\d{2})?",
+            rf"\b{MONTHS}\s+\d{{1,2}}(st|nd|rd|th)?\b",
+            rf"\b\d{{1,2}}(st|nd|rd|th)?\s+(of\s+)?{MONTHS}",
+            PHONE,
+        )
+    ),
+    re.IGNORECASE,
+)
+
 
 @dataclass(frozen=True)
 class Check:
@@ -44,7 +62,11 @@ def normalize(answer: str) -> str:
 
 
 def numbers_in(text: str) -> set[int]:
-    """Integers in `text`, reading `1,234` as one number."""
+    """
+    Integers in `text` that could be a count, reading `1,234` as one number and skipping
+    those inside dates, times and phone numbers.
+    """
+    text = NOT_COUNTS.sub(" ", text)
     return {
         int(n.replace(",", "")) for n in re.findall(r"\d{1,3}(?:,\d{3})+|\d+", text)
     }
@@ -53,7 +75,7 @@ def numbers_in(text: str) -> set[int]:
 def phone_numbers_in(text: str) -> set[str]:
     """Ten-digit US numbers in `text`, whatever their punctuation."""
     found = set()
-    for match in re.findall(r"\+?1?[\s.-]?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}", text):
+    for match in re.findall(PHONE, text):
         digits = re.sub(r"\D", "", match)
         found.add(digits[-10:])
     return found
@@ -81,6 +103,10 @@ def grade(case: Case, answer: str, trace: Trace) -> Grade:
         )
     for needle in case.must_not_include:
         checks.append(Check(f"excludes {needle!r}", needle.casefold() not in text, ""))
+    for pattern in case.must_not_match:
+        checks.append(
+            Check(f"doesn't match /{pattern}/", re.search(pattern, text) is None, "")
+        )
     if case.expect_number is not None:
         found = numbers_in(text)
         checks.append(

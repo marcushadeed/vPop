@@ -11,5 +11,5 @@ wheels/
 
 # Secrets
 secrets/
-# Benchmark results
+# Benchmark results from before they moved to the data directory
 benchmarks/results/

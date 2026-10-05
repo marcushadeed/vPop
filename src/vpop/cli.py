@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 
 from vpop.config import (
+    EFFORT_CHOICES,
+    THINK_CHOICES,
     Config,
     ConfigError,
     load_config,
@@ -105,17 +107,30 @@ def main():
         "bench", help="benchmark models on fixed questions over a synthetic database"
     )
     bench_parser.add_argument(
+        "--provider",
+        choices=["ollama", "claude"],
+        default="ollama",
+        help="which kind of model to benchmark (default: ollama)",
+    )
+    bench_parser.add_argument(
         "--model",
         action="append",
         default=[],
-        help="Ollama model (repeatable; defaults to the config's ollama.model)",
+        help="model to run (repeatable; defaults to the config's model for the provider)",
     )
     bench_parser.add_argument(
         "--think",
         action="append",
         default=[],
-        choices=["on", "off", "default"],
-        help="thinking setting (repeatable)",
+        choices=THINK_CHOICES,
+        help="Ollama thinking setting (repeatable)",
+    )
+    bench_parser.add_argument(
+        "--effort",
+        action="append",
+        default=[],
+        choices=EFFORT_CHOICES,
+        help="Claude effort level (repeatable)",
     )
     bench_parser.add_argument(
         "--case", action="append", default=[], help="only this case id (repeatable)"
@@ -129,10 +144,12 @@ def main():
     bench_parser.add_argument(
         "--repeat", type=int, default=1, help="times to run each case"
     )
+    bench_parser.add_argument("--out", type=Path, help="directory for the results file")
     bench_parser.add_argument(
         "--compare",
         nargs="+",
         metavar="RESULTS",
+        type=Path,
         help="compare result files instead of running",
     )
     bench_parser.add_argument(
@@ -149,7 +166,7 @@ def main():
     elif args.command == "auth":
         auth_command(args)
     elif args.command == "bench":
-        bench(args)
+        bench_command(args)
     else:
         sync_command(args)
 
@@ -233,24 +250,42 @@ def config_command(args: argparse.Namespace) -> None:
         print(render_config(config, comments=False), end="")
 
 
-def bench(args: argparse.Namespace) -> None:
+def bench_command(args: argparse.Namespace) -> None:
     """Run, list or compare benchmark cases."""
+    # pylint: disable=import-outside-toplevel
     from vpop.benchmark import run
     from vpop.benchmark.cases import CASES
 
     if args.list:
         for case in CASES:
             print(f"{case.id}  [{', '.join(case.tags)}]  {case.question}")
-    elif args.compare:
-        run.compare([Path(p) for p in args.compare])
+        return
+    if args.compare:
+        run.compare(args.compare)
+        return
+    if args.provider == "ollama" and args.effort:
+        raise SystemExit("--effort is for --provider claude; use --think with Ollama")
+    if args.provider == "claude" and args.think:
+        raise SystemExit("--think is for --provider ollama; use --effort with Claude")
+    config = load_or_exit()
+    if args.provider == "ollama":
+        models = args.model or [config.ollama.model]
+        options = args.think or [config.ollama.think]
     else:
-        run.run(
-            models=args.model or [load_or_exit().ollama.model],
-            thinks=args.think,
-            case_ids=args.case,
-            tags=args.tag,
-            repeat=args.repeat,
-        )
+        models = args.model or [config.claude.model]
+        options = args.effort or [config.claude.effort]
+    configs = [
+        run.BenchConfig(args.provider, model, option)
+        for model in models
+        for option in options
+    ]
+    run.run(
+        configs,
+        case_ids=args.case,
+        tags=args.tag,
+        repeat=args.repeat,
+        out_dir=args.out,
+    )
 
 
 if __name__ == "__main__":
