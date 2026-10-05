@@ -96,7 +96,7 @@ def arguments(values: Mapping[str, Any]) -> str:
     )
 
 
-def result_summary(call: ToolCall) -> str:
+def result_summary(call: ToolCall) -> str:  # pylint: disable=too-many-return-statements
     """
     A few words on what a tool call returned: `2 threads`, `14 messages (+36 more)`,
     `30 of 812 messages`, `10 rows`. Errors and empty results (`No messages match.`) are
@@ -116,6 +116,12 @@ def result_summary(call: ToolCall) -> str:
         if len(rows) < len(lines):
             return f"{len(rows) - 1:,}+ rows"
         return plural(len(rows) - 1, "row")
+    if call.name == "read_event":
+        return lines[0]  # the event's title
+    if call.name == "search_events":
+        # After a line naming the columns; a cut-off result ends `… more events`.
+        events = plural(len(rows) - 1, "event")
+        return f"{events} (+more)" if len(rows) < len(lines) else events
     if call.name == "find_threads":
         summary = plural(len(rows) - 1, "thread")  # after a line naming the columns
     elif call.name == "search_messages":

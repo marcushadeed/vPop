@@ -63,6 +63,16 @@ def test_render_round_trips_non_defaults() -> None:
     assert parse_config(render_config(config)) == config
 
 
+def test_string_lists_round_trip_as_tuples() -> None:
+    config = parse_config(
+        '[google_calendar]\nenabled = true\nexclude_calendars = ["Holidays", "a\\"b"]\n'
+    )
+    assert config.google_calendar.exclude_calendars == ("Holidays", 'a"b')
+    assert 'exclude_calendars = ["Holidays", "a\\"b"]' in render_config(config)
+    assert parse_config(render_config(config)) == config
+    assert "exclude_calendars = []" in render_config(Config())
+
+
 def test_init_refuses_to_overwrite(tmp_path: Path) -> None:
     path = tmp_path / "config.toml"
     path.write_text("[assistant]\nlocal_model = false\n")
@@ -84,6 +94,11 @@ def test_init_refuses_to_overwrite(tmp_path: Path) -> None:
         ("[claude]\neffort = 'huge'\n", "claude.effort must be one of"),
         ("[assistant]\nmax_rounds = 0\n", "max_rounds must be at least 1"),
         ("[ollama]\nnum_ctx = 512\n", "num_ctx must be at least 2048"),
+        (
+            "[google_calendar]\nexclude_calendars = 'Holidays'\n",
+            "exclude_calendars must be a list of strings",
+        ),
+        ("[google_calendar]\nexclude_calendars = [1]\n", "must be a list of strings"),
         ("assistant = 3\n", "must be a table"),
         ("[assistant\n", "invalid TOML"),
     ],

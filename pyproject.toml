@@ -45,8 +45,8 @@ extend-select = ["I", "UP", "B", "SIM", "RUF"]
 # Message times are local wall-clock strings, so naive datetimes are intended.
 ignore = ["DTZ001"]
 # Curly quotes appear in real message text; × is the matrix symbol in benchmark output; › is
-# the chat's prompt.
-allowed-confusables = ["‘", "’", "“", "”", "×", "›"]
+# the chat's prompt; – joins the start and end of a calendar event.
+allowed-confusables = ["‘", "’", "“", "”", "×", "›", "–"]
 
 [tool.pylint.main]
 extension-pkg-allow-list = ["lxml"]
@@ -57,7 +57,14 @@ packages = ["vpop"]
 mypy_path = "src"
 
 [[tool.mypy.overrides]]
-module = ["google_auth_oauthlib.*", "googleapiclient.*", "google.oauth2.*", "google.auth.*"]
+module = [
+    "google_auth_oauthlib.*",
+    "googleapiclient.*",
+    "google.oauth2.*",
+    "google.auth.*",
+    "google_auth_httplib2",
+    "httplib2",
+]
 ignore_missing_imports = true
 
 [tool.ruff.lint.flake8-bugbear]

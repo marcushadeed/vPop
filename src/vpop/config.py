@@ -94,6 +94,22 @@ class AndroidMessagesConfig:
 
 
 @dataclass(frozen=True)
+class GoogleCalendarConfig:
+    """The `[google_calendar]` section: reading Google Calendar while answering."""
+
+    enabled: bool = setting(
+        False,
+        "Let vPop read your Google Calendar while answering: read-only and live, nothing "
+        "is stored. Uses the same Google OAuth client as the message backups; run "
+        "`vpop auth google` after turning it on.",
+    )
+    exclude_calendars: tuple[str, ...] = setting(
+        (),
+        'Calendars to leave out, by name or id, e.g. ["Holidays in United States"].',
+    )
+
+
+@dataclass(frozen=True)
 class Config:
     """The whole config file; each field is a `[section]`."""
 
@@ -103,6 +119,7 @@ class Config:
     android_messages: AndroidMessagesConfig = field(
         default_factory=AndroidMessagesConfig
     )
+    google_calendar: GoogleCalendarConfig = field(default_factory=GoogleCalendarConfig)
 
 
 class ConfigError(ValueError):
@@ -113,15 +130,24 @@ def type_name(hint: Any) -> str:
     """How a setting's type is named in an error message."""
     if get_origin(hint) is Literal:
         return "one of " + ", ".join(get_args(hint))
+    if get_origin(hint) is tuple:
+        return "a list of strings"
     return str(hint.__name__)
 
 
 def check_value(name: str, spec: Field[Any], hint: Any, value: Any) -> Any:
-    """Return `value` if it suits the setting (an int is fine for a float), else raise."""
+    """
+    Return `value` if it suits the setting (an int is fine for a float, a list of strings
+    becomes a tuple), else raise.
+    """
     if get_origin(hint) is Literal:
         if value not in get_args(hint):
             raise ConfigError(f"{name} must be {type_name(hint)}, not {value!r}")
         return value
+    if get_origin(hint) is tuple:
+        if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+            raise ConfigError(f"{name} must be {type_name(hint)}, not {value!r}")
+        return tuple(value)
     # bool is a subclass of int, so `num_ctx = true` would otherwise pass.
     if isinstance(value, bool) and hint is not bool:
         ok = False
@@ -203,6 +229,8 @@ def toml_value(value: Any) -> str:
     if isinstance(value, str):
         escaped = value.replace("\\", "\\\\").replace('"', '\\"')
         return f'"{escaped}"'
+    if isinstance(value, tuple | list):
+        return "[" + ", ".join(toml_value(item) for item in value) + "]"
     raise TypeError(f"can't write {type(value).__name__} to TOML")
 
 

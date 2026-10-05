@@ -3,8 +3,9 @@
 from vpop.config import Config
 from vpop.sources.android_messages.source import AndroidMessages
 from vpop.sources.base import Source
+from vpop.sources.google_calendar.source import GoogleCalendar
 
-SOURCES: tuple[type[Source], ...] = (AndroidMessages,)
+SOURCES: tuple[type[Source], ...] = (AndroidMessages, GoogleCalendar)
 
 
 def enabled_sources(config: Config) -> list[Source]:

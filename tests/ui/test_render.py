@@ -82,6 +82,28 @@ def test_result_summary(
     assert render.result_summary(run(tools, name, **arguments)) == summary
 
 
+CALENDAR_HEADER = "when | calendar | title | where | event_id"
+EVENT = "2026-10-07 09:00–10:00 | Personal | Dentist |  | dentist"
+
+
+@pytest.mark.parametrize(
+    ("name", "result", "summary"),
+    [
+        ("search_events", f"{CALENDAR_HEADER}\n{EVENT}\n{EVENT}", "2 events"),
+        (
+            "search_events",
+            f"{CALENDAR_HEADER}\n{EVENT}\n… more events (narrow the dates…)",
+            "1 event (+more)",
+        ),
+        ("search_events", "No events from 2026-10-05 00:00 to 2026-11-04 00:00.", None),
+        ("read_event", "Dentist\nwhen: 2026-10-07 09:00–10:00", "Dentist"),
+    ],
+)
+def test_calendar_result_summary(name: str, result: str, summary: str | None) -> None:
+    call = ToolCall(name, {}, result)
+    assert render.result_summary(call) == (summary or result)
+
+
 def test_result_summary_of_an_error_is_the_error(tools: Toolbox) -> None:
     call = run(tools, "search_messages", since="August")
     assert render.result_summary(call).startswith("error: since must look like")
