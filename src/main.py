@@ -17,17 +17,17 @@ def main():
     """Entry point for the vpop CLI. With no subcommand, runs `sync`."""
     parser = argparse.ArgumentParser(prog="vpop")
     subcommands = parser.add_subparsers(dest="command")
-    subcommands.add_parser("sync", help="pull new message backups into the database")
+    subcommands.add_parser("sync", help="update database with latest source information")
     ask_parser = subcommands.add_parser(
-        "ask", help="ask a question about your messages (no question starts a REPL)"
+        "ask", help="ask vPop a question about your data"
     )
-    ask_parser.add_argument("question", nargs="*", help="the question to ask")
+    ask_parser.add_argument("question", nargs="*", help="the question to ask. Leave empty to start a conversation")
     config_parser = subcommands.add_parser(
         "config", help="write or show the config file"
     )
     config_actions = config_parser.add_subparsers(dest="config_command", required=True)
     init_parser = config_actions.add_parser(
-        "init", help="write a config file with every setting at its default"
+        "init", help="write a default config file"
     )
     init_parser.add_argument(
         "--force", action="store_true", help="overwrite an existing config file"
