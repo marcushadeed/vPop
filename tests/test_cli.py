@@ -1,9 +1,13 @@
 """Tests for the command-line interface."""
 
+import re
+import sys
+
 import pytest
-from helpers import build_db, make_message
+from helpers import ScriptedOllama, build_db, make_message, text_reply, tool_reply
 
 from vpop import cli
+from vpop.assistant.conversation import Conversation
 from vpop.paths import config_path, db_path
 
 
@@ -20,10 +24,65 @@ def run(capsys: pytest.CaptureFixture[str], *argv: str) -> tuple[int, str, str]:
     return code, out, err
 
 
-def test_no_command_prints_help(capsys: pytest.CaptureFixture[str]) -> None:
-    code, out, _ = run(capsys)
-    assert code == 2
+def test_help_lists_the_commands(capsys: pytest.CaptureFixture[str]) -> None:
+    code, out, _ = run(capsys, "--help")
+    assert code == 0
     assert "sync" in out and "ask" in out
+
+
+def test_no_command_is_ask_without_a_question(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    code, _, err = run(capsys)
+    assert code == 1
+    assert "Run `vpop sync` first" in err
+
+
+def at_terminal(monkeypatch: pytest.MonkeyPatch, *streams: str) -> None:
+    """Make the named streams ("stdin", "stdout") look like a terminal."""
+    for name in streams:
+        monkeypatch.setattr(getattr(sys, name), "isatty", lambda: True)
+
+
+def answers(monkeypatch: pytest.MonkeyPatch, *replies: object) -> None:
+    """Make the local model reply with `replies` in turn."""
+    monkeypatch.setattr("ollama.Client.chat", ScriptedOllama(list(replies)).chat)
+
+
+def test_no_command_at_a_terminal_opens_the_chat(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    build_db(db_path(), [make_message()])
+    opened: list[Conversation] = []
+    monkeypatch.setattr(
+        "vpop.ui.chat.run_chat", lambda conversation, *_: opened.append(conversation)
+    )
+    at_terminal(monkeypatch, "stdin", "stdout")
+    code, _, _ = run(capsys)
+    assert code == 0
+    assert len(opened) == 1
+
+
+def test_ask_prints_just_the_answer_when_piped(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    build_db(db_path(), [make_message()])
+    answers(monkeypatch, tool_reply("search_messages", text="hello"), text_reply("Hi."))
+    code, out, _ = run(capsys, "ask", "what did sam say?")
+    assert (code, out) == (0, "Hi.\n")
+
+
+def test_ask_at_a_terminal_shows_its_progress(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    build_db(db_path(), [make_message()])
+    answers(monkeypatch, tool_reply("search_messages", text="hello"), text_reply("Hi."))
+    at_terminal(monkeypatch, "stdout")
+    code, out, _ = run(capsys, "ask", "what did sam say?")
+    shown = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", out)
+    assert code == 0
+    assert '● search_messages(text: "hello")' in shown
+    assert "● Hi." in shown
 
 
 def test_config_init_and_show(capsys: pytest.CaptureFixture[str]) -> None:

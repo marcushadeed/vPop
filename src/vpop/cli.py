@@ -4,6 +4,7 @@ import argparse
 import logging
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from vpop.config import (
     EFFORT_CHOICES,
@@ -15,6 +16,9 @@ from vpop.config import (
     write_default_config,
 )
 from vpop.paths import config_path
+
+if TYPE_CHECKING:
+    from vpop.assistant.conversation import Conversation
 
 
 class Formatter(logging.Formatter):
@@ -41,8 +45,12 @@ def setup_logging(verbosity: int) -> None:
 def build_parser() -> argparse.ArgumentParser:
     """The argument parser for every subcommand."""
     parser = argparse.ArgumentParser(
-        prog="vpop", description="Ask questions about your own messages."
+        prog="vpop",
+        description="Ask questions about your own messages. Run it without a command to "
+        "chat.",
     )
+    # A bare `vpop` is `vpop ask` without a question: the chat.
+    parser.set_defaults(question=[])
     noise = parser.add_mutually_exclusive_group()
     noise.add_argument(
         "-v",
@@ -77,11 +85,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="don't download new backups, only import what's already downloaded",
     )
 
-    ask = commands.add_parser("ask", help="ask vPop a question about your data")
+    ask = commands.add_parser(
+        "ask", help="ask one question, or chat when none is given (the default)"
+    )
     ask.add_argument(
         "question",
         nargs="*",
-        help="the question to ask. Leave empty to start a conversation",
+        help="the question to ask. Leave empty to chat",
     )
 
     config = commands.add_parser("config", help="write or show the config file")
@@ -179,11 +189,8 @@ def main(argv: list[str] | None = None) -> None:
         "auth": auth_command,
         "bench": bench_command,
     }
-    if args.command is None:
-        parser.print_help()
-        raise SystemExit(2)
     try:
-        handlers[args.command](args)
+        handlers[args.command or "ask"](args)
     except KeyboardInterrupt:
         raise SystemExit(130) from None
 
@@ -211,20 +218,16 @@ def sync_command(args: argparse.Namespace) -> None:
 
 
 def ask_command(args: argparse.Namespace) -> None:
-    """Answer one question, or start a conversation with none."""
+    """Answer one question, or chat with none."""
     # pylint: disable=import-outside-toplevel
     from vpop.assistant.auth import offer_login
     from vpop.assistant.errors import AuthError, MissingCredentialsError, describe_error
-    from vpop.assistant.session import new_conversation, repl
+    from vpop.assistant.session import new_conversation
 
     config = load_or_exit()
     for attempt in range(2):
         try:
-            conversation = new_conversation(config)
-            if args.question:
-                print(conversation.ask(" ".join(args.question)))
-            else:
-                repl(conversation)
+            converse(new_conversation(config), config, " ".join(args.question))
             return
         except MissingCredentialsError as exc:
             print(f"error: {exc}", file=sys.stderr)
@@ -238,6 +241,30 @@ def ask_command(args: argparse.Namespace) -> None:
             if message is None:
                 raise
             raise SystemExit(f"error: {message}") from exc
+
+
+def converse(conversation: "Conversation", config: Config, question: str) -> None:
+    """
+    Answer `question`, or chat without one. At a terminal the chat UI shows tool calls and
+    the answer as they arrive; piped, only the answer is printed, and a chat reads plain
+    lines from stdin.
+    """
+    # pylint: disable=import-outside-toplevel
+    from vpop.assistant.session import new_conversation, repl
+
+    if question:
+        if sys.stdout.isatty():
+            from vpop.ui.chat import answer_once
+
+            answer_once(conversation, question)
+        else:
+            print(conversation.ask(question))
+    elif sys.stdin.isatty() and sys.stdout.isatty():
+        from vpop.ui.chat import run_chat
+
+        run_chat(conversation, config, lambda: new_conversation(config))
+    else:
+        repl(conversation)
 
 
 def auth_command(args: argparse.Namespace) -> None:
