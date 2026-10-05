@@ -10,25 +10,22 @@ import ollama
 import pytest
 
 from vpop.assistant.harness import Conversation, Settings, ToolCall, Trace
+from vpop.assistant.tools import MessageTools
 from vpop.benchmark import cases, fixture, run
 from vpop.benchmark.cases import CASES, Case
 from vpop.benchmark.grading import grade, numbers_in, phone_numbers_in
 from vpop.config import Config
-from vpop.paths import db_path
 
 
 @pytest.fixture(scope="module")
 def fixture_db() -> Iterator[Path]:
-    with run.fixture_data_dir():
-        yield db_path()
+    with run.fixture_db() as path:
+        yield path
 
 
-@pytest.fixture(autouse=True)
-def use_fixture_data(
-    isolated: None, fixture_db: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Point the data directory at the fixture database, not the test's empty one."""
-    monkeypatch.setenv("XDG_DATA_HOME", str(fixture_db.parents[1]))
+@pytest.fixture
+def tools(fixture_db: Path) -> MessageTools:
+    return MessageTools(fixture_db)
 
 
 def query(path: Path, sql: str, *params: object) -> list[tuple[Any, ...]]:
@@ -222,10 +219,12 @@ def text_reply(content: str) -> ollama.Message:
     return ollama.Message(role="assistant", content=content)
 
 
-def test_conversation_uses_settings_and_today(fixture_db: Path) -> None:
+def test_conversation_uses_settings_and_today(tools: MessageTools) -> None:
     client = ScriptedClient([text_reply("hi")])
     settings = Settings(model="m:1b", num_ctx=2048, think=False)
-    conversation = Conversation(client, settings, today="2026-09-15", verbose=False)  # type: ignore[arg-type]
+    conversation = Conversation(
+        tools, client, settings, today="2026-09-15", verbose=False
+    )  # type: ignore[arg-type]
     conversation.ask("hello")
     request = client.requests[0]
     assert request["model"] == "m:1b"
@@ -239,7 +238,7 @@ def test_settings_default_to_config_defaults() -> None:
     assert Settings() == Settings.from_config(Config())
 
 
-def test_run_case_records_trace_and_grades(fixture_db: Path) -> None:
+def test_run_case_records_trace_and_grades(tools: MessageTools) -> None:
     case = next(c for c in CASES if c.id == "sam-dog-name")
     client = ScriptedClient(
         [
@@ -248,7 +247,7 @@ def test_run_case_records_trace_and_grades(fixture_db: Path) -> None:
             text_reply("Sam's dog is named Biscuit."),
         ]
     )
-    record = run.run_case(case, Settings(model="m"), client)  # type: ignore[arg-type]
+    record = run.run_case(case, Settings(model="m"), tools, client)  # type: ignore[arg-type]
     assert record["passed"]
     assert record["rounds"] == 3
     assert record["prompt_tokens"] == 300 and record["output_tokens"] == 30
@@ -259,15 +258,15 @@ def test_run_case_records_trace_and_grades(fixture_db: Path) -> None:
     assert [c["is_error"] for c in record["tool_calls"]] == [False, True]
 
 
-def test_run_case_hits_round_limit(fixture_db: Path) -> None:
+def test_run_case_hits_round_limit(tools: MessageTools) -> None:
     case = make_case(must_include=("x",))
     client = ScriptedClient([tool_reply("find_threads", name_or_number="Sam")] * 2)
-    record = run.run_case(case, Settings(model="m", max_rounds=2), client)  # type: ignore[arg-type]
+    record = run.run_case(case, Settings(model="m", max_rounds=2), tools, client)  # type: ignore[arg-type]
     assert record["hit_round_limit"]
     assert not record["passed"]
 
 
-def test_run_case_multi_turn_grades_last_answer(fixture_db: Path) -> None:
+def test_run_case_multi_turn_grades_last_answer(tools: MessageTools) -> None:
     case = next(c for c in CASES if c.id == "chris-restaurant-followup")
     client = ScriptedClient(
         [
@@ -276,7 +275,7 @@ def test_run_case_multi_turn_grades_last_answer(fixture_db: Path) -> None:
             text_reply("Adams Morgan."),
         ]
     )
-    record = run.run_case(case, Settings(model="m"), client)  # type: ignore[arg-type]
+    record = run.run_case(case, Settings(model="m"), tools, client)  # type: ignore[arg-type]
     assert record["answers"] == ["Casa Verde.", "Adams Morgan."]
     assert record["passed"]
 

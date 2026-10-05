@@ -36,6 +36,10 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
+[tool.ruff.lint]
+# Message times are local wall-clock strings, so naive datetimes are intended.
+ignore = ["DTZ001"]
+
 [tool.pylint.main]
 extension-pkg-allow-list = ["lxml"]
 

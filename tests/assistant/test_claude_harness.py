@@ -1,6 +1,5 @@
 """Tests for the Claude harness with a scripted client. No API call is made."""
 
-import os
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -18,23 +17,16 @@ from vpop.assistant.claude_harness import (
     response_cost,
     usage_line,
 )
-from vpop.assistant.harness import QUERY_FUNCTIONS, AuthError
+from vpop.assistant.harness import AuthError
+from vpop.assistant.tools import TOOL_NAMES, MessageTools
 from vpop.benchmark import run
 from vpop.config import ClaudeConfig
 
 
 @pytest.fixture(scope="module")
-def fixture_data_home() -> Iterator[str]:
-    with run.fixture_data_dir():
-        yield os.environ["XDG_DATA_HOME"]
-
-
-@pytest.fixture(autouse=True)
-def use_fixture_data(
-    isolated: None, fixture_data_home: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Point the data directory at the fixture database, not the test's empty one."""
-    monkeypatch.setenv("XDG_DATA_HOME", fixture_data_home)
+def tools() -> Iterator[MessageTools]:
+    with run.fixture_db() as path:
+        yield MessageTools(path)
 
 
 def message(
@@ -85,10 +77,11 @@ class ScriptedClient:
 
 
 def converse(
-    replies: list[BetaMessage], **kwargs: Any
+    tools: MessageTools, replies: list[BetaMessage], **kwargs: Any
 ) -> tuple[ClaudeConversation, ScriptedMessages]:
     client = ScriptedClient(replies)
     conversation = ClaudeConversation(
+        tools,
         client=client,  # type: ignore[arg-type]
         today="2026-09-15",
         verbose=False,
@@ -97,16 +90,17 @@ def converse(
     return conversation, client.messages
 
 
-def test_tools_match_query_functions() -> None:
-    tools = claude_tools()
-    assert [t["name"] for t in tools] == list(QUERY_FUNCTIONS)
-    find: dict[str, Any] = dict(tools[0]["input_schema"])
+def test_tools_match_query_functions(tools: MessageTools) -> None:
+    definitions = claude_tools(tools)
+    assert [t["name"] for t in definitions] == list(TOOL_NAMES)
+    find: dict[str, Any] = dict(definitions[0]["input_schema"])
     assert find["required"] == ["name_or_number"]
     assert "limit" in find["properties"]
 
 
-def test_tool_loop_runs_tools_and_returns_answer() -> None:
+def test_tool_loop_runs_tools_and_returns_answer(tools: MessageTools) -> None:
     conversation, api = converse(
+        tools,
         [tool_use("find_threads", name_or_number="Mom"), text("Mom's thread.")],
         settings=ClaudeConfig(model="claude-sonnet-5-5", effort="low"),
     )
@@ -128,24 +122,26 @@ def test_tool_loop_runs_tools_and_returns_answer() -> None:
     assert trace.prompt_tokens == 200
 
 
-def test_tool_errors_are_flagged() -> None:
-    conversation, api = converse([tool_use("drop_table"), text("sorry")])
+def test_tool_errors_are_flagged(tools: MessageTools) -> None:
+    conversation, api = converse(tools, [tool_use("drop_table"), text("sorry")])
     conversation.ask("q")
     result = api.requests[1]["messages"][-1]["content"][0]
     assert result["is_error"] is True
     assert "unknown tool" in result["content"]
 
 
-def test_round_limit() -> None:
+def test_round_limit(tools: MessageTools) -> None:
     conversation, _ = converse(
-        [tool_use("find_threads", name_or_number="x")] * 2, max_rounds=2
+        tools, [tool_use("find_threads", name_or_number="x")] * 2, max_rounds=2
     )
     assert "Stopped after 2 rounds" in conversation.ask("q")
     assert conversation.trace.hit_round_limit
 
 
-def test_refusal_and_max_tokens() -> None:
-    conversation, _ = converse([message([], "refusal"), text("partial", "max_tokens")])
+def test_refusal_and_max_tokens(tools: MessageTools) -> None:
+    conversation, _ = converse(
+        tools, [message([], "refusal"), text("partial", "max_tokens")]
+    )
     assert "declined" in conversation.ask("q")
     assert "max_tokens" in conversation.ask("q2")
 
@@ -182,9 +178,9 @@ def test_unknown_model_has_no_price() -> None:
     assert "$" not in line
 
 
-def test_trace_splits_cached_input() -> None:
+def test_trace_splits_cached_input(tools: MessageTools) -> None:
     conversation, _ = converse(
-        [text("a", cache_read_input_tokens=500, cache_creation_input_tokens=50)]
+        tools, [text("a", cache_read_input_tokens=500, cache_creation_input_tokens=50)]
     )
     conversation.ask("q")
     trace = conversation.trace
@@ -196,14 +192,14 @@ def test_trace_splits_cached_input() -> None:
 
 
 def test_verbose_ask_logs_question_and_session_cost(
-    caplog: pytest.LogCaptureFixture,
+    tools: MessageTools, caplog: pytest.LogCaptureFixture
 ) -> None:
     caplog.set_level("INFO")
     replies = [
         text("a", input_tokens=10_000, output_tokens=1_000),
         text("b", input_tokens=20_000, output_tokens=1_000),
     ]
-    conversation, _ = converse(replies)
+    conversation, _ = converse(tools, replies)
     conversation.verbose = True
     conversation.ask("q1")
     conversation.ask("q2")
@@ -267,10 +263,10 @@ class RejectingMessages:
     [(401, anthropic.AuthenticationError), (403, anthropic.PermissionDeniedError)],
 )
 def test_rejected_credentials_raise_auth_error(
-    status: int, error: type[anthropic.APIStatusError]
+    tools: MessageTools, status: int, error: type[anthropic.APIStatusError]
 ) -> None:
     client = ScriptedClient([])
     client.messages = RejectingMessages(status, error)  # type: ignore[assignment]
-    conversation = ClaudeConversation(client=client, verbose=False)  # type: ignore[arg-type]
+    conversation = ClaudeConversation(tools, client=client, verbose=False)  # type: ignore[arg-type]
     with pytest.raises(AuthError, match=f"\\({status}\\): API key is invalid"):
         conversation.ask("hi")

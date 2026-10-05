@@ -7,7 +7,6 @@ answer to `benchmarks/results/`, and prints a summary.
 """
 
 import json
-import os
 import statistics
 import subprocess
 import sys
@@ -24,10 +23,10 @@ from typing import Any
 import ollama
 
 from vpop.assistant.harness import Conversation, Settings, parse_think
+from vpop.assistant.tools import MessageTools
 from vpop.benchmark import fixture
 from vpop.benchmark.cases import CASES, Case
 from vpop.benchmark.grading import grade
-from vpop.paths import db_path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RESULTS_DIR = REPO_ROOT / "benchmarks" / "results"
@@ -40,19 +39,12 @@ def config_label(settings: Settings) -> str:
 
 
 @contextmanager
-def fixture_data_dir() -> Iterator[None]:
-    """Point the database at a fresh fixture DB in a temp dir, restoring the env after."""
-    previous = os.environ.get("XDG_DATA_HOME")
+def fixture_db() -> Iterator[Path]:
+    """Build the fixture database in a temporary directory and yield its path."""
     with tempfile.TemporaryDirectory(prefix="vpop-bench-") as tmp:
-        os.environ["XDG_DATA_HOME"] = tmp
-        try:
-            fixture.build_fixture_db(db_path())
-            yield
-        finally:
-            if previous is None:
-                del os.environ["XDG_DATA_HOME"]
-            else:
-                os.environ["XDG_DATA_HOME"] = previous
+        path = Path(tmp) / "fixture.db"
+        fixture.build_fixture_db(path)
+        yield path
 
 
 def git_sha() -> str:
@@ -78,11 +70,14 @@ def git_sha() -> str:
 
 
 def run_case(
-    case: Case, settings: Settings, client: ollama.Client | None = None
+    case: Case,
+    settings: Settings,
+    tools: MessageTools,
+    client: ollama.Client | None = None,
 ) -> dict[str, Any]:
     """Ask one case in a fresh conversation and return its graded record."""
     conversation = Conversation(
-        client=client, settings=settings, today=fixture.TODAY, verbose=False
+        tools, client=client, settings=settings, today=fixture.TODAY, verbose=False
     )
     answers: list[str] = []
     error = None
@@ -235,11 +230,13 @@ def run(
     stamp = {"git_sha": git_sha(), "today": fixture.TODAY}
     total = len(configs) * len(cases) * repeat
     records: list[dict[str, Any]] = []
-    with fixture_data_dir(), out_path.open("w") as out:
+    with fixture_db() as db_file, out_path.open("w") as out:
+        tools = MessageTools(db_file)
         for settings in configs:
             for rep in range(repeat):
                 for case in cases:
-                    record = run_case(case, settings, client) | stamp | {"repeat": rep}
+                    record = run_case(case, settings, tools, client)
+                    record |= stamp | {"repeat": rep}
                     records.append(record)
                     out.write(json.dumps(record, ensure_ascii=False) + "\n")
                     out.flush()

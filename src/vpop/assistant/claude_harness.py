@@ -21,15 +21,14 @@ from anthropic.types.beta import (
 
 from vpop.assistant.harness import (
     SYSTEM_PROMPT,
-    TOOLS,
     AuthError,
     MissingCredentialsError,
     ToolCall,
     Trace,
-    call_tool,
     log_tool_call,
     today_label,
 )
+from vpop.assistant.tools import MessageTools
 from vpop.config import AssistantConfig, ClaudeConfig
 from vpop.fsutil import read_env_file
 from vpop.paths import anthropic_env_path
@@ -198,19 +197,16 @@ def make_client() -> tuple[anthropic.Anthropic, str]:
     return client, source
 
 
-def claude_tools() -> list[BetaToolParam]:
-    """The local harness's tool definitions in the Anthropic API's shape."""
-    tools: list[BetaToolParam] = []
-    for tool in TOOLS:
-        assert tool.function is not None and tool.function.parameters is not None
-        tools.append(
-            {
-                "name": tool.function.name or "",
-                "description": tool.function.description or "",
-                "input_schema": tool.function.parameters.model_dump(exclude_none=True),
-            }
-        )
-    return tools
+def claude_tools(tools: MessageTools) -> list[BetaToolParam]:
+    """The tool definitions in the Anthropic API's shape."""
+    return [
+        {
+            "name": schema["name"],
+            "description": schema["description"],
+            "input_schema": schema["parameters"],
+        }
+        for schema in tools.schemas()
+    ]
 
 
 def answer_text(message: BetaMessage) -> str:
@@ -230,6 +226,7 @@ class ClaudeConversation:  # pylint: disable=too-many-instance-attributes
 
     def __init__(
         self,
+        tools: MessageTools,
         settings: ClaudeConfig | None = None,
         max_rounds: int = AssistantConfig.max_rounds,
         client: anthropic.Anthropic | None = None,
@@ -247,7 +244,8 @@ class ClaudeConversation:  # pylint: disable=too-many-instance-attributes
         self.today = today
         self.verbose = verbose
         self.trace = Trace()
-        self.tools = claude_tools()
+        self.tools = tools
+        self.tool_definitions = claude_tools(tools)
         self.messages: list[BetaMessageParam] = []
         self.cost = 0.0
         # Models that served a response but have no entry in `PRICES`.
@@ -261,7 +259,7 @@ class ClaudeConversation:  # pylint: disable=too-many-instance-attributes
                 max_tokens=self.settings.max_tokens,
                 system=SYSTEM_PROMPT,
                 messages=self.messages,
-                tools=self.tools,
+                tools=self.tool_definitions,
                 thinking={"type": "adaptive"},
                 # The config checks effort against the allowed values.
                 output_config=cast(
@@ -343,7 +341,7 @@ class ClaudeConversation:  # pylint: disable=too-many-instance-attributes
                 arguments = dict(block.input) if isinstance(block.input, dict) else {}
                 if self.verbose:
                     log_tool_call(block.name, arguments)
-                result = call_tool(block.name, arguments)
+                result = self.tools.call(block.name, arguments)
                 self.trace.tool_calls.append(ToolCall(block.name, arguments, result))
                 results.append(
                     {
