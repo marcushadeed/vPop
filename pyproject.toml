@@ -66,5 +66,5 @@ extend-immutable-calls = ["vpop.config.setting"]
 
 [[tool.mypy.overrides]]
 # google-auth ships partial types; its Credentials methods are unannotated.
-module = ["vpop.sources.google_drive"]
+module = ["vpop.sources.google.auth", "vpop.sources.google.drive"]
 disallow_untyped_calls = false

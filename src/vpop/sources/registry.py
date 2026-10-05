@@ -11,3 +11,8 @@ def enabled_sources(config: Config) -> list[Source]:
     """The sources the config turns on, in `SOURCES` order."""
     sources = [cls(config) for cls in SOURCES]
     return [source for source in sources if source.enabled()]
+
+
+def google_scopes(config: Config) -> list[str]:
+    """Every Google OAuth scope the enabled sources need, sorted."""
+    return sorted({scope for s in enabled_sources(config) for scope in s.google_scopes})

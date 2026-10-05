@@ -10,6 +10,7 @@ it to `vpop.sources.registry.SOURCES`.
 
 import sqlite3
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from pathlib import Path
 from typing import ClassVar
 
@@ -49,8 +50,11 @@ class SyncedSource(Source):
     """A source copied to disk: its raw files are the source of truth, the database derived."""
 
     @abstractmethod
-    def download(self) -> None:
-        """Fetch new raw files."""
+    def download(self, google_scopes: Sequence[str]) -> None:
+        """
+        Fetch new raw files. `google_scopes` are the scopes every enabled source needs, for
+        a source that reads Google: asking for all of them makes one consent prompt.
+        """
 
     @abstractmethod
     def import_raw(self, conn: sqlite3.Connection) -> str:

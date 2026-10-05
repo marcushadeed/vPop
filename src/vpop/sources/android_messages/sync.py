@@ -2,6 +2,7 @@
 
 import logging
 import sqlite3
+from collections.abc import Sequence
 from pathlib import Path
 
 from vpop import db
@@ -65,13 +66,17 @@ def import_backups(conn: sqlite3.Connection, raw_dir: Path) -> tuple[int, int]:
     return imported, added
 
 
-def download(config: Config, raw_dir: Path) -> None:
-    """Fetch new backups from Drive into `raw_dir`."""
+def download(config: Config, raw_dir: Path, google_scopes: Sequence[str]) -> None:
+    """
+    Fetch new backups from Drive into `raw_dir`. `google_scopes` are the scopes every
+    enabled source needs, so one consent prompt covers them all.
+    """
     # Imported here so the Google client libraries load only when they're needed.
     # pylint: disable=import-outside-toplevel
     from vpop.sources.android_messages.fetch import download_backups
-    from vpop.sources.google_drive import get_drive_service
+    from vpop.sources.google.drive import get_drive_service
 
     folder_id = drive_folder_id(config)
-    names = download_backups(get_drive_service(), folder_id, raw_dir)
+    service = get_drive_service(google_scopes)
+    names = download_backups(service, folder_id, raw_dir)
     log.info("downloaded %d new backup file(s)", len(names))

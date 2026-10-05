@@ -3,7 +3,7 @@
 import logging
 from pathlib import Path
 
-from vpop.sources.google_drive import (
+from vpop.sources.google.drive import (
     DriveService,
     download_file,
     is_google_doc,

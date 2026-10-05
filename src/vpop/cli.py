@@ -103,7 +103,7 @@ def build_parser() -> argparse.ArgumentParser:
     config_actions.add_parser("show", help="print the settings in effect")
 
     auth = commands.add_parser(
-        "auth", help="set up the Anthropic credentials Claude answers with"
+        "auth", help="set up the Anthropic credentials and Google access"
     )
     auth_actions = auth.add_subparsers(dest="auth_command", required=True)
     auth_actions.add_parser(
@@ -113,6 +113,11 @@ def build_parser() -> argparse.ArgumentParser:
         "status", help="show which credentials are used and check they work"
     )
     auth_actions.add_parser("logout", help="remove the saved API key")
+    auth_actions.add_parser(
+        "google",
+        help="give vPop read-only access to the Google data the enabled sources read "
+        "(opens a browser)",
+    )
 
     bench = commands.add_parser(
         "bench", help="benchmark models on fixed questions over a synthetic database"
@@ -268,16 +273,38 @@ def converse(conversation: "Conversation", config: Config, question: str) -> Non
 
 
 def auth_command(args: argparse.Namespace) -> None:
-    """Set up, check or remove the Anthropic credentials."""
-    from vpop.assistant import auth  # pylint: disable=import-outside-toplevel
+    """Set up, check or remove the Anthropic credentials, or grant Google access."""
+    # pylint: disable=import-outside-toplevel
+    from vpop.assistant import auth
+    from vpop.sources.registry import google_scopes
 
-    if args.auth_command == "login":
+    if args.auth_command == "google":
+        google_auth_command(google_scopes(load_or_exit()))
+    elif args.auth_command == "login":
         if not auth.login(load_or_exit()):
             raise SystemExit(1)
     elif args.auth_command == "status":
-        raise SystemExit(auth.status(load_or_exit()))
+        config = load_or_exit()
+        code = auth.status(config)
+        from vpop.sources.google.auth import status_line
+
+        print(status_line(google_scopes(config)))
+        raise SystemExit(code)
     else:
         auth.logout()
+
+
+def google_auth_command(scopes: list[str]) -> None:
+    """`vpop auth google`: ask for consent to every scope the enabled sources need."""
+    from vpop.sources.google import auth  # pylint: disable=import-outside-toplevel
+
+    if not scopes:
+        raise SystemExit("error: no enabled source reads Google")
+    try:
+        granted = auth.authorize(scopes)
+    except auth.GoogleSetupError as exc:
+        raise SystemExit(f"error: {exc}") from exc
+    print(f"Google access granted: {auth.names(granted)}")
 
 
 def config_command(args: argparse.Namespace) -> None:

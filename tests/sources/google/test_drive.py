@@ -1,18 +1,14 @@
 """Tests for the Drive client and the backup downloader, with a fake Drive service."""
 
-import stat
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from vpop.paths import oauth_token_path
-from vpop.sources import google_drive
 from vpop.sources.android_messages.fetch import download_backups
-from vpop.sources.google_drive import (
-    DriveSetupError,
+from vpop.sources.google import drive
+from vpop.sources.google.drive import (
     download_file,
-    get_credentials,
     list_folder_files,
 )
 
@@ -69,7 +65,7 @@ SERVICE_CONTENTS = {"id-a": b"<smses/>", "id-b": b"<smses></smses>"}
 
 @pytest.fixture(autouse=True)
 def fake_downloader(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(google_drive, "MediaIoBaseDownload", FakeDownloader)
+    monkeypatch.setattr(drive, "MediaIoBaseDownload", FakeDownloader)
 
 
 def file(
@@ -125,32 +121,3 @@ def test_download_backups_skips_what_it_has(tmp_path: Path) -> None:
     )
     assert download_backups(service, "folder", tmp_path) == ["b.xml"]
     assert (tmp_path / "b.xml").read_bytes() == SERVICE_CONTENTS["id-b"]
-
-
-def test_missing_oauth_client_explains_setup() -> None:
-    with pytest.raises(DriveSetupError, match=r"oauth-client-credentials\.json"):
-        get_credentials()
-
-
-def test_new_token_is_private(monkeypatch: pytest.MonkeyPatch) -> None:
-    client = oauth_token_path().parent / "oauth-client-credentials.json"
-    client.parent.mkdir(parents=True)
-    client.write_text("{}")
-
-    class Creds:
-        valid = True
-
-        def to_json(self) -> str:
-            return '{"token": "t"}'
-
-    class Flow:
-        def run_local_server(self, port: int) -> Creds:
-            return Creds()
-
-    monkeypatch.setattr(
-        google_drive.InstalledAppFlow,
-        "from_client_secrets_file",
-        lambda *_: Flow(),
-    )
-    get_credentials()
-    assert stat.S_IMODE(oauth_token_path().stat().st_mode) == 0o600

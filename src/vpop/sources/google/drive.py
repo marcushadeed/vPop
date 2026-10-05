@@ -1,72 +1,26 @@
 """Read files from Google Drive with the user's OAuth consent (read-only scope)."""
 
 import os
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
-from google.auth.exceptions import RefreshError
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
-from vpop.fsutil import write_private
-from vpop.paths import oauth_credentials_path, oauth_token_path
-from vpop.sources import SourceError
-
-SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
+from vpop.sources.google import DRIVE_READONLY
+from vpop.sources.google.auth import get_credentials
 
 # The Drive API client is built at runtime from a discovery document, so it has no types.
 DriveService = Any
 
 
-class DriveSetupError(SourceError):
-    """Drive access isn't set up. The message says what to do."""
-
-
-def missing_client_message(path: Path) -> str:
-    """What to do when the OAuth client file is missing."""
-    return (
-        f"no Google OAuth client at {path}.\n"
-        "Create one in Google Cloud Console (APIs & Services → Credentials → Create "
-        "credentials → OAuth client ID → Desktop app), enable the Google Drive API for the "
-        f"project, download the client's JSON, and save it as {path}."
-    )
-
-
-def get_credentials() -> Credentials:
-    """Load cached OAuth credentials, refreshing or requesting consent as needed."""
-    token_path = oauth_token_path()
-    creds: Credentials | None = None
-    if token_path.exists():
-        creds = Credentials.from_authorized_user_file(str(token_path), SCOPES)
-
-    if creds and creds.valid:
-        return creds
-
-    if creds and creds.expired and creds.refresh_token:
-        try:
-            creds.refresh(Request())
-        except RefreshError:
-            # Refresh token was revoked or expired; fall back to consent.
-            creds = None
-
-    if not creds or not creds.valid:
-        client_path = oauth_credentials_path()
-        if not client_path.exists():
-            raise DriveSetupError(missing_client_message(client_path))
-        flow = InstalledAppFlow.from_client_secrets_file(str(client_path), SCOPES)
-        creds = cast(Credentials, flow.run_local_server(port=0))
-
-    # The refresh token reads the whole Drive, so only the owner may read it.
-    write_private(token_path, creds.to_json())
-    return creds
-
-
-def get_drive_service() -> DriveService:
-    """The Drive v3 API client, authorized with the user's credentials."""
-    return build("drive", "v3", credentials=get_credentials())
+def get_drive_service(scopes: Sequence[str] = (DRIVE_READONLY,)) -> DriveService:
+    """
+    The Drive v3 API client, authorized with the user's credentials. `scopes` should be
+    every scope the enabled sources need, so one consent prompt covers all of them.
+    """
+    return build("drive", "v3", credentials=get_credentials(scopes))
 
 
 def escape_query_value(value: str) -> str:

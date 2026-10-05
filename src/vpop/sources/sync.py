@@ -7,7 +7,7 @@ from vpop import db
 from vpop.config import Config
 from vpop.paths import db_path
 from vpop.sources.base import SyncedSource
-from vpop.sources.registry import enabled_sources
+from vpop.sources.registry import enabled_sources, google_scopes
 
 log = logging.getLogger(__name__)
 
@@ -20,8 +20,9 @@ def sync(config: Config, *, rebuild: bool = False, offline: bool = False) -> Non
     """
     sources = [s for s in enabled_sources(config) if isinstance(s, SyncedSource)]
     if not offline:
+        scopes = google_scopes(config)
         for source in sources:
-            source.download()
+            source.download(scopes)
     target = db_path()
     path = target.with_name(target.name + ".rebuild") if rebuild else target
     if rebuild:
