@@ -44,8 +44,9 @@ testpaths = ["tests"]
 extend-select = ["I", "UP", "B", "SIM", "RUF"]
 # Message times are local wall-clock strings, so naive datetimes are intended.
 ignore = ["DTZ001"]
-# Curly quotes appear in real message text; × is the matrix symbol in benchmark output.
-allowed-confusables = ["‘", "’", "“", "”", "×"]
+# Curly quotes appear in real message text; × is the matrix symbol in benchmark output; › is
+# the chat's prompt.
+allowed-confusables = ["‘", "’", "“", "”", "×", "›"]
 
 [tool.pylint.main]
 extension-pkg-allow-list = ["lxml"]
