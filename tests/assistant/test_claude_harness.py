@@ -7,7 +7,13 @@ from typing import Any, Self
 import anthropic
 import httpx2
 import pytest
-from anthropic.types.beta import BetaMessage
+from anthropic.lib.streaming import ParsedBetaTextEvent
+from anthropic.types.beta import (
+    BetaMessage,
+    BetaRawContentBlockStartEvent,
+    BetaTextBlock,
+)
+from helpers import RecordingListener
 
 from vpop.assistant.claude_harness import (
     ClaudeConversation,
@@ -69,6 +75,26 @@ class ScriptedStream:
 
     def __exit__(self, *_: object) -> None:
         return None
+
+    def __iter__(self) -> Iterator[object]:
+        """
+        The events a real stream yields for the reply: a start event per content block,
+        then a text block's text in two pieces.
+        """
+        if isinstance(self.reply, BaseException):
+            raise self.reply
+        for index, block in enumerate(self.reply.content):
+            start = (
+                BetaTextBlock(type="text", text="") if block.type == "text" else block
+            )
+            yield BetaRawContentBlockStartEvent(
+                type="content_block_start", index=index, content_block=start
+            )
+            if block.type == "text":
+                middle = len(block.text) // 2
+                first, rest = block.text[:middle], block.text[middle:]
+                yield ParsedBetaTextEvent(type="text", text=first, snapshot=first)
+                yield ParsedBetaTextEvent(type="text", text=rest, snapshot=block.text)
 
     def get_final_message(self) -> BetaMessage:
         if isinstance(self.reply, BaseException):
@@ -140,6 +166,42 @@ def test_tool_loop_runs_tools_and_returns_answer(tools: MessageTools) -> None:
     assert trace.rounds == 2
     assert [c.name for c in trace.tool_calls] == ["find_threads"]
     assert trace.prompt_tokens == 200
+
+
+def test_streams_narration_tool_calls_and_answer_in_order(tools: MessageTools) -> None:
+    narration = message(
+        [
+            {"type": "text", "text": "Let me look."},
+            {
+                "type": "tool_use",
+                "id": "toolu_1",
+                "name": "find_threads",
+                "input": {"name_or_number": "Mom"},
+            },
+        ],
+        "tool_use",
+    )
+    conversation, _ = converse(tools, [narration, text("Mom's thread.")])
+    listener = RecordingListener()
+    conversation.listener = listener
+    assert conversation.ask("who is mom?") == "Mom's thread."
+    assert listener.events == [
+        "text: Let me look.",
+        "tool: find_threads -> thread_key | contact name(s) | messages | first → last",
+        "text: Mom's thread.",
+    ]
+
+
+def test_text_blocks_stream_with_a_line_break_between(tools: MessageTools) -> None:
+    reply = message(
+        [{"type": "text", "text": "First."}, {"type": "text", "text": "Second."}],
+        "end_turn",
+    )
+    conversation, _ = converse(tools, [reply])
+    listener = RecordingListener()
+    conversation.listener = listener
+    assert conversation.ask("q") == "First.\nSecond."
+    assert listener.events == ["text: First.\nSecond."]
 
 
 def test_tool_errors_are_flagged(tools: MessageTools) -> None:

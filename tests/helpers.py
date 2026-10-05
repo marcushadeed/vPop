@@ -9,6 +9,7 @@ from typing import Any
 import ollama
 
 from vpop import db
+from vpop.assistant.conversation import Listener, ToolCall
 from vpop.sources.android_messages.model import Direction, Message
 from vpop.sources.android_messages.store import insert_messages
 
@@ -80,3 +81,22 @@ def tool_reply(name: str, **arguments: Any) -> ollama.Message:
 def text_reply(content: str) -> ollama.Message:
     """An Ollama turn answering in text."""
     return ollama.Message(role="assistant", content=content)
+
+
+class RecordingListener(Listener):
+    """
+    Records what a conversation reports as it goes: streamed text, with consecutive pieces
+    joined, and each tool call with the first line of its result.
+    """
+
+    def __init__(self) -> None:
+        self.events: list[str] = []
+
+    def text(self, delta: str) -> None:
+        if self.events and self.events[-1].startswith("text: "):
+            self.events[-1] += delta
+        else:
+            self.events.append(f"text: {delta}")
+
+    def tool_call(self, call: ToolCall) -> None:
+        self.events.append(f"tool: {call.name} -> {call.result.splitlines()[0]}")

@@ -3,7 +3,8 @@ The tool loop both harnesses share: send the conversation, run the tools the mod
 send the results back, until it answers or runs out of rounds.
 
 Providers subclass `Conversation` and implement how a question, a model turn and tool results
-are represented in their own message history.
+are represented in their own message history. A `Listener` set on the conversation hears about
+progress as it happens, which is how the chat UI shows it.
 """
 
 import logging
@@ -65,6 +66,16 @@ class Reply:
     calls: list[PendingCall] = field(default_factory=list)
 
 
+class Listener:
+    """Hooks for showing a question's progress while it runs. The defaults do nothing."""
+
+    def text(self, delta: str) -> None:
+        """A piece of the model's text as it streams in (only from providers that stream)."""
+
+    def tool_call(self, call: ToolCall) -> None:
+        """A tool call that has just run."""
+
+
 class Conversation(ABC):
     """A multi-turn conversation over the message database with some model."""
 
@@ -79,6 +90,7 @@ class Conversation(ABC):
         self.max_rounds = max_rounds
         self.today = today
         self.trace = Trace()
+        self.listener = Listener()
 
     @property
     @abstractmethod
@@ -124,9 +136,9 @@ class Conversation(ABC):
                 args = ", ".join(f"{k}={v!r}" for k, v in call.arguments.items())
                 log.info("  → %s(%s)", call.name, args)
                 result = self.tools.call(call.name, call.arguments)
-                self.trace.tool_calls.append(
-                    ToolCall(call.name, call.arguments, result)
-                )
+                tool_call = ToolCall(call.name, call.arguments, result)
+                self.trace.tool_calls.append(tool_call)
+                self.listener.tool_call(tool_call)
                 results.append((call, result))
             self.add_results(results)
         self.trace.hit_round_limit = True

@@ -288,8 +288,11 @@ class ClaudeConversation(Conversation):  # pylint: disable=too-many-instance-att
     def request(self) -> BetaMessage:
         """
         Send the conversation and return the complete response. It streams, so a large
-        `max_tokens` doesn't run into the SDK's limit for non-streaming requests.
+        `max_tokens` doesn't run into the SDK's limit for non-streaming requests, and the
+        text is passed to the listener as it arrives, with a line break between text
+        blocks as in `answer_text`.
         """
+        streamed = False
         try:
             with self.client.beta.messages.stream(
                 model=self.settings.model,
@@ -306,6 +309,16 @@ class ClaudeConversation(Conversation):  # pylint: disable=too-many-instance-att
                 betas=[FALLBACK_BETA],
                 fallbacks="default",
             ) as stream:
+                for event in stream:
+                    if event.type == "text":
+                        self.listener.text(event.text)
+                        streamed = True
+                    elif (
+                        event.type == "content_block_start"
+                        and event.content_block.type == "text"
+                        and streamed
+                    ):
+                        self.listener.text("\n")
                 return stream.get_final_message()
         except (anthropic.AuthenticationError, anthropic.PermissionDeniedError) as exc:
             raise AuthError(

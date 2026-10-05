@@ -3,7 +3,14 @@
 from pathlib import Path
 
 import pytest
-from helpers import ScriptedOllama, build_db, make_message, text_reply, tool_reply
+from helpers import (
+    RecordingListener,
+    ScriptedOllama,
+    build_db,
+    make_message,
+    text_reply,
+    tool_reply,
+)
 
 from vpop.assistant.ollama_harness import OllamaConversation, ollama_tools
 from vpop.assistant.tools import TOOL_NAMES, MessageTools
@@ -62,6 +69,18 @@ def test_tool_loop_runs_tools_and_answers(
     assert "Biscuit" in tool_message["content"]
     assert "→ search_messages(text='biscuit')" in caplog.text
     assert conversation.trace.rounds == 2
+
+
+def test_listener_hears_tool_calls_but_no_streamed_text(tools: MessageTools) -> None:
+    conversation, _ = converse(
+        tools,
+        [tool_reply("search_messages", text="biscuit"), text_reply("Biscuit.")],
+    )
+    listener = RecordingListener()
+    conversation.listener = listener
+    assert conversation.ask("dog?") == "Biscuit."
+    hit = "2026-08-01 09:00:00 | Sam Smith [+12405551234] | Sam Smith | Biscuit"
+    assert listener.events == [f"tool: search_messages -> {hit}"]
 
 
 def test_round_limit(tools: MessageTools) -> None:
