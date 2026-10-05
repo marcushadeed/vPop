@@ -95,10 +95,8 @@ def test_load_error_names_the_file(tmp_path: Path) -> None:
 
 
 @pytest.fixture
-def homes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Path, Path]:
-    """Point HOME and XDG_CONFIG_HOME at separate temp dirs; return both config paths."""
-    monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+def homes(tmp_path: Path) -> tuple[Path, Path]:
+    """The XDG and home config paths the isolated environment points at."""
     return (
         tmp_path / "xdg" / "vpop" / "config.toml",
         tmp_path / "home" / ".config" / "vpop" / "config.toml",

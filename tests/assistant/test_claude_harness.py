@@ -1,5 +1,6 @@
 """Tests for the Claude harness with a scripted client. No API call is made."""
 
+import os
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -22,10 +23,18 @@ from vpop.benchmark import run
 from vpop.config import ClaudeConfig
 
 
-@pytest.fixture(scope="module", autouse=True)
-def fixture_db() -> Iterator[None]:
+@pytest.fixture(scope="module")
+def fixture_data_home() -> Iterator[str]:
     with run.fixture_data_dir():
-        yield
+        yield os.environ["XDG_DATA_HOME"]
+
+
+@pytest.fixture(autouse=True)
+def use_fixture_data(
+    isolated: None, fixture_data_home: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Point the data directory at the fixture database, not the test's empty one."""
+    monkeypatch.setenv("XDG_DATA_HOME", fixture_data_home)
 
 
 def message(

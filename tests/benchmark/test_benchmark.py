@@ -23,6 +23,14 @@ def fixture_db() -> Iterator[Path]:
         yield db_path()
 
 
+@pytest.fixture(autouse=True)
+def use_fixture_data(
+    isolated: None, fixture_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Point the data directory at the fixture database, not the test's empty one."""
+    monkeypatch.setenv("XDG_DATA_HOME", str(fixture_db.parents[1]))
+
+
 def query(path: Path, sql: str, *params: object) -> list[tuple[Any, ...]]:
     with closing(sqlite3.connect(path)) as conn:
         return conn.execute(sql, params).fetchall()
