@@ -23,6 +23,7 @@ from assistant.harness import (
     SYSTEM_PROMPT,
     TOOLS,
     AuthError,
+    MissingCredentialsError,
     ToolCall,
     Trace,
     call_tool,
@@ -161,8 +162,8 @@ def missing_credentials_message() -> str:
     """What to do when no credentials were found."""
     return (
         "no Anthropic credentials found, and the config has local_model = false.\n"
-        "Give vpop an API key (create one at "
-        f"{API_KEYS_URL}) in one of these ways:\n"
+        "Run `vpop auth login` to set up a key, or give vpop one (create it at "
+        f"{API_KEYS_URL}) yourself:\n"
         f"  - put ANTHROPIC_API_KEY=sk-ant-... in {anthropic_env_path()}\n"
         "  - export ANTHROPIC_API_KEY\n"
         "  - log in with the Anthropic CLI: ant auth login\n"
@@ -175,7 +176,7 @@ def rejected_credentials_message(source: str, error: anthropic.APIStatusError) -
     if source.startswith("the Anthropic CLI profile"):
         fix = "Log in again with: ant auth login"
     else:
-        fix = f"Check the key at {API_KEYS_URL} and replace it."
+        fix = f"Check the key at {API_KEYS_URL}, then run `vpop auth login` to replace it."
     # The body's own message ("API key is invalid.") reads better than the SDK's repr.
     body = error.body if isinstance(error.body, dict) else {}
     detail = body.get("error", {}).get("message") or error.message
@@ -198,7 +199,7 @@ def make_client() -> tuple[anthropic.Anthropic, str]:
         ) from exc
     source = credential_source(client, from_file)
     if source is None:
-        raise AuthError(missing_credentials_message())
+        raise MissingCredentialsError(missing_credentials_message())
     return client, source
 
 

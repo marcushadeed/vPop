@@ -206,24 +206,6 @@ def test_verbose_ask_prints_question_and_session_cost(
     ]
 
 
-@pytest.fixture
-def no_credentials(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
-    """
-    An environment with no Anthropic credentials: no env vars, no CLI profile, an empty
-    config directory. Returns where `anthropic.env` goes.
-    """
-    for var in (
-        "ANTHROPIC_API_KEY",
-        "ANTHROPIC_AUTH_TOKEN",
-        "ANTHROPIC_PROFILE",
-        "ANTHROPIC_CONFIG_DIR",
-    ):
-        monkeypatch.delenv(var, raising=False)
-    monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
-    return tmp_path / "xdg" / "vpop" / "anthropic.env"
-
-
 def test_missing_credentials_say_where_to_put_a_key(no_credentials: Path) -> None:
     with pytest.raises(AuthError) as error:
         make_client()

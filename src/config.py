@@ -223,6 +223,44 @@ def render_config(config: Config, comments: bool = True) -> str:
     return "\n".join(lines) + "\n"
 
 
+def set_setting(path: Path, section: str, key: str, value: Any) -> None:
+    """
+    Change one setting in the config file, keeping its comments and layout. Adds the key
+    (and its section) if the file leaves them out.
+    """
+    lines = path.read_text().splitlines() if path.exists() else []
+    line = f"{key} = {toml_value(value)}"
+    header = f"[{section}]"
+    start = next((i for i, text in enumerate(lines) if text.strip() == header), None)
+    if start is None:
+        lines += ([""] if lines else []) + [header, line]
+    else:
+        end = next(
+            (
+                i
+                for i in range(start + 1, len(lines))
+                if lines[i].lstrip().startswith("[")
+            ),
+            len(lines),
+        )
+        index = next(
+            (
+                i
+                for i in range(start + 1, end)
+                if lines[i].split("=", 1)[0].strip() == key
+            ),
+            None,
+        )
+        if index is None:
+            lines.insert(start + 1, line)
+        else:
+            lines[index] = line
+    text = "\n".join(lines) + "\n"
+    parse_config(text)  # Refuse to write a file that won't load.
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+
+
 def write_default_config(path: Path | None = None, force: bool = False) -> Path:
     """Write a config file with every setting at its default and return its path."""
     path = path or config_path()

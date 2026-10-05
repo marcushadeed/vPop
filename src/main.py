@@ -1,6 +1,7 @@
 """Entry point for the vpop CLI."""
 
 import argparse
+import sys
 from pathlib import Path
 
 from config import (
@@ -33,6 +34,17 @@ def main():
         "--force", action="store_true", help="overwrite an existing config file"
     )
     config_actions.add_parser("show", help="print the settings in effect")
+    auth_parser = subcommands.add_parser(
+        "auth", help="set up the Anthropic credentials Claude answers with"
+    )
+    auth_actions = auth_parser.add_subparsers(dest="auth_command", required=True)
+    auth_actions.add_parser(
+        "login", help="save an API key (or log in with the Anthropic CLI)"
+    )
+    auth_actions.add_parser(
+        "status", help="show which credentials are used and check they work"
+    )
+    auth_actions.add_parser("logout", help="remove the saved API key")
     bench_parser = subcommands.add_parser(
         "bench", help="benchmark models on fixed questions over a synthetic database"
     )
@@ -74,18 +86,11 @@ def main():
 
     # Imports are deferred: `sync` needs the Drive secrets at import time, `ask` doesn't.
     if args.command == "ask":
-        from assistant.harness import AuthError, ask, repl
-
-        config = load_or_exit()
-        try:
-            if args.question:
-                print(ask(" ".join(args.question), config))
-            else:
-                repl(config)
-        except AuthError as exc:
-            raise SystemExit(f"error: {exc}") from exc
+        ask_command(args)
     elif args.command == "config":
         config_command(args)
+    elif args.command == "auth":
+        auth_command(args)
     elif args.command == "bench":
         bench(args)
     else:
@@ -100,6 +105,40 @@ def load_or_exit() -> Config:
         return load_config()
     except ConfigError as exc:
         raise SystemExit(f"bad config: {exc}") from exc
+
+
+def ask_command(args: argparse.Namespace) -> None:
+    """Answer one question, or start a conversation with none."""
+    from assistant.auth import offer_login
+    from assistant.harness import AuthError, MissingCredentialsError, ask, repl
+
+    config = load_or_exit()
+    for attempt in range(2):
+        try:
+            if args.question:
+                print(ask(" ".join(args.question), config))
+            else:
+                repl(config)
+            return
+        except MissingCredentialsError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            if attempt or not offer_login(config):
+                raise SystemExit(1) from exc
+        except AuthError as exc:
+            raise SystemExit(f"error: {exc}") from exc
+
+
+def auth_command(args: argparse.Namespace) -> None:
+    """Set up, check or remove the Anthropic credentials."""
+    from assistant import auth
+
+    if args.auth_command == "login":
+        if not auth.login(load_or_exit()):
+            raise SystemExit(1)
+    elif args.auth_command == "status":
+        raise SystemExit(auth.status(load_or_exit()))
+    else:
+        auth.logout()
 
 
 def config_command(args: argparse.Namespace) -> None:

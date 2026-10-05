@@ -14,6 +14,7 @@ from config import (
     load_config,
     parse_config,
     render_config,
+    set_setting,
     write_default_config,
 )
 
@@ -165,3 +166,31 @@ def test_remote_model_picks_claude_conversation(
     assert isinstance(conversation, ClaudeConversation)
     assert conversation.max_rounds == 5
     assert conversation.settings == ClaudeConfig()
+
+
+def test_set_setting_replaces_value_keeping_comments(tmp_path: Path) -> None:
+    path = write_default_config(tmp_path / "config.toml")
+    set_setting(path, "assistant", "local_model", False)
+    text = path.read_text()
+    assert "local_model = false" in text
+    assert "# true: a local Ollama model" in text
+    assert load_config(path).assistant.local_model is False
+
+
+def test_set_setting_adds_missing_key_and_section(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text('[claude]\nmodel = "claude-opus-5-5"\n')
+    set_setting(path, "claude", "effort", "high")
+    set_setting(path, "assistant", "local_model", False)
+    config = load_config(path)
+    assert config.claude.effort == "high"
+    assert config.claude.model == "claude-opus-5-5"
+    assert config.assistant.local_model is False
+
+
+def test_set_setting_refuses_bad_value(tmp_path: Path) -> None:
+    path = write_default_config(tmp_path / "config.toml")
+    before = path.read_text()
+    with pytest.raises(ConfigError):
+        set_setting(path, "claude", "effort", "extreme")
+    assert path.read_text() == before
