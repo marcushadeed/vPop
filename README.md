@@ -15,7 +15,7 @@ That gives you two things: the ability to ask questions about your own informati
 Pre-release. What works today is marked ✅; everything else is planned (see the roadmap).
 
 - ✅ **Text messages** — SMS, MMS and RCS from Android, via SMS Backup & Restore backups on Google Drive, imported into a local SQLite database.
-- ✅ **Natural-language questions** — `vpop ask` puts an LLM (a local Ollama model, or Claude) on top of the database through read-only query tools, so it pulls in only the rows it needs.
+- ✅ **Natural-language questions** — `vpop` opens a chat in the terminal that puts an LLM (a local Ollama model, or Claude) on top of the database through read-only query tools, so it pulls in only the rows it needs.
 - ✅ **Benchmark** — fixed questions over a synthetic database with known answers, for comparing models and settings.
 - Other sources — notes, email, Google Calendar, reminders, photos of physical journals.
 - Daily report — a morning rundown of your schedule and to-dos (text someone back, charge your AirPods), delivered to your phone, with audio output and a single-button trigger for the car.
@@ -30,7 +30,7 @@ graph LR
     raw --> sqlite["SQLite"]
     sqlite --> tools["read-only query tools"]
     tools --> llm["Ollama or Claude"]
-    llm -->|vpop ask| you["you"]
+    llm -->|vpop| you["you"]
 ```
 
 The downloaded backups are the source of truth; the database is derived from them and can be rebuilt at any time (`vpop sync --rebuild`). The model never sees the database directly: it calls tools that search messages (full-text and substring), read a conversation around a message, and run read-only SQL for counts.
@@ -42,6 +42,7 @@ Code layout (`src/vpop/`):
 - `db.py` — schema, migrations and connections
 - `sources/` — one package per data source (`android_messages/`: fetch, parse, store, sync), plus the Google Drive client
 - `assistant/` — the query tools, the shared tool loop, the Ollama and Claude harnesses, `vpop auth`
+- `ui/` — the chat: rich draws the transcript, prompt_toolkit reads the input
 - `benchmark/` — the synthetic fixture, cases, grader and runner
 
 ## Roadmap
@@ -96,8 +97,8 @@ vpop sync                  # download new backups and import them
 vpop sync --offline        # import what's already downloaded, no network
 vpop sync --rebuild        # recreate the database from every downloaded backup
 
-vpop ask "Where did Jordan end up moving?"
-vpop ask                   # a conversation; Ctrl-C cancels a question, Ctrl-D exits
+vpop                       # chat (the same as `vpop ask`)
+vpop ask "Where did Jordan end up moving?"   # one question
 
 vpop config show           # the settings in effect
 vpop auth status           # which Anthropic credentials are used, and whether they work
@@ -108,7 +109,17 @@ vpop bench --provider claude --effort low --effort medium   # costs API credits
 vpop bench --compare FILE1.jsonl FILE2.jsonl
 ```
 
-`-v` shows debug output and `-q` hides progress. Files live in the XDG directories: settings and secrets in `~/.config/vpop/`, backups, the database and benchmark results in `~/.local/share/vpop/`.
+`-v` shows debug output and `-q` hides progress. Files live in the XDG directories: settings and secrets in `~/.config/vpop/`, backups, the database, chat history and benchmark results in `~/.local/share/vpop/`.
+
+### The chat
+
+Each tool call the model makes shows as it runs (`● search_messages(text: "moving")`, with a line on what it found), then the answer, rendered as markdown. Claude's answers stream in as they're written; a local model's appear when finished. The footer under the input shows the model and what the conversation has used so far: tokens, and with Claude the estimated cost.
+
+- Enter sends, Alt+Enter adds a line, ↑ and ↓ go through earlier questions.
+- Ctrl-C cancels a running question or clears the line; twice on an empty line, it quits. Ctrl-D also quits.
+- `/help` lists the keys and commands, `/new` starts a new conversation, `/exit` quits.
+
+When stdin or stdout isn't a terminal, vPop stays plain: `vpop ask "…" > answer.txt` writes just the answer, and questions piped into `vpop` get plain answers.
 
 ## Development
 
