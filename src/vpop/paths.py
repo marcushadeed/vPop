@@ -55,8 +55,8 @@ def anthropic_env_path() -> Path:
     return config_dir() / "anthropic.env"
 
 
-def remote_data_locations_env() -> Path:
-    """`remote-data-locations.env` beside the config, holding Drive folder IDs."""
+def legacy_remote_locations_path() -> Path:
+    """Where older versions kept the Drive folder id; it now lives in the config file."""
     return config_dir() / "remote-data-locations.env"
 
 

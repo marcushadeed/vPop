@@ -83,12 +83,26 @@ class ClaudeConfig:
 
 
 @dataclass(frozen=True)
+class AndroidMessagesConfig:
+    """The `[android_messages]` section: where `vpop sync` finds the message backups."""
+
+    drive_folder_id: str = setting(
+        "",
+        "Google Drive folder that SMS Backup & Restore uploads to: the id at the end of "
+        "the folder's URL (https://drive.google.com/drive/folders/<id>).",
+    )
+
+
+@dataclass(frozen=True)
 class Config:
     """The whole config file; each field is a `[section]`."""
 
     assistant: AssistantConfig = field(default_factory=AssistantConfig)
     ollama: OllamaConfig = field(default_factory=OllamaConfig)
     claude: ClaudeConfig = field(default_factory=ClaudeConfig)
+    android_messages: AndroidMessagesConfig = field(
+        default_factory=AndroidMessagesConfig
+    )
 
 
 class ConfigError(ValueError):

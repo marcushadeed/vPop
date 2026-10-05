@@ -6,6 +6,7 @@ import pytest
 
 from vpop.assistant.harness import Conversation, Settings, new_conversation
 from vpop.config import (
+    AndroidMessagesConfig,
     ClaudeConfig,
     Config,
     ConfigError,
@@ -50,11 +51,16 @@ def test_generated_file_round_trips(tmp_path: Path) -> None:
     text = path.read_text()
     assert "local_model = true" in text
     assert "# true: a local Ollama model" in text
+    assert "[android_messages]" in text
     assert load_config(path) == Config()
 
 
 def test_render_round_trips_non_defaults() -> None:
-    config = parse_config('[claude]\nmodel = "claude-sonnet-5-5"\neffort = "high"\n')
+    config = parse_config(
+        '[claude]\nmodel = "claude-sonnet-5-5"\neffort = "high"\n'
+        '[android_messages]\ndrive_folder_id = "abc123"\n'
+    )
+    assert config.android_messages == AndroidMessagesConfig(drive_folder_id="abc123")
     assert parse_config(render_config(config)) == config
 
 

@@ -1,8 +1,8 @@
-"""Fetch Android Messages SMS Backup & Restore XML from Google Drive."""
+"""Read files from Google Drive with the user's OAuth consent (read-only scope)."""
 
-from __future__ import annotations
-
+import os
 from pathlib import Path
+from typing import Any, cast
 
 from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
@@ -11,15 +11,34 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
+from vpop.fsutil import write_private
 from vpop.paths import oauth_credentials_path, oauth_token_path
+from vpop.sources import SourceError
 
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 
+# The Drive API client is built at runtime from a discovery document, so it has no types.
+DriveService = Any
 
-def _get_credentials() -> Credentials:
+
+class DriveSetupError(SourceError):
+    """Drive access isn't set up. The message says what to do."""
+
+
+def missing_client_message(path: Path) -> str:
+    """What to do when the OAuth client file is missing."""
+    return (
+        f"no Google OAuth client at {path}.\n"
+        "Create one in Google Cloud Console (APIs & Services → Credentials → Create "
+        "credentials → OAuth client ID → Desktop app), enable the Google Drive API for the "
+        f"project, download the client's JSON, and save it as {path}."
+    )
+
+
+def get_credentials() -> Credentials:
     """Load cached OAuth credentials, refreshing or requesting consent as needed."""
     token_path = oauth_token_path()
-    creds = None
+    creds: Credentials | None = None
     if token_path.exists():
         creds = Credentials.from_authorized_user_file(str(token_path), SCOPES)
 
@@ -34,36 +53,35 @@ def _get_credentials() -> Credentials:
             creds = None
 
     if not creds or not creds.valid:
-        flow = InstalledAppFlow.from_client_secrets_file(
-            str(oauth_credentials_path()), SCOPES
-        )
-        creds = flow.run_local_server(port=0)
+        client_path = oauth_credentials_path()
+        if not client_path.exists():
+            raise DriveSetupError(missing_client_message(client_path))
+        flow = InstalledAppFlow.from_client_secrets_file(str(client_path), SCOPES)
+        creds = cast(Credentials, flow.run_local_server(port=0))
 
-    token_path.parent.mkdir(parents=True, exist_ok=True)
-    token_path.write_text(creds.to_json())
-
+    # The refresh token reads the whole Drive, so only the owner may read it.
+    write_private(token_path, creds.to_json())
     return creds
 
 
-def get_drive_service():
-    """Access the Drive API service with OAuth credentials."""
+def get_drive_service() -> DriveService:
+    """The Drive v3 API client, authorized with the user's credentials."""
+    return build("drive", "v3", credentials=get_credentials())
 
-    return build("drive", "v3", credentials=_get_credentials())
 
-
-def _escape_drive_query_value(value: str) -> str:
+def escape_query_value(value: str) -> str:
+    """Escape a value for a single-quoted string in a Drive search query."""
     return value.replace("\\", "\\\\").replace("'", "\\'")
 
 
-def list_folder_files(service, folder_id: str) -> list[dict]:
-    """List non-trashed files directly inside a Drive folder.
-
-    Returns dicts with at least ``id`` and ``name``.
+def list_folder_files(service: DriveService, folder_id: str) -> list[dict[str, Any]]:
     """
-    query = f"'{_escape_drive_query_value(folder_id)}' in parents and trashed = false"
-    files: list[dict] = []
+    List non-trashed files directly inside a Drive folder, as dicts with `id`, `name`,
+    `mimeType`, `modifiedTime` and `size` (Google Docs have no size).
+    """
+    query = f"'{escape_query_value(folder_id)}' in parents and trashed = false"
+    files: list[dict[str, Any]] = []
     page_token: str | None = None
-
     while True:
         response = (
             service.files()
@@ -79,49 +97,29 @@ def list_folder_files(service, folder_id: str) -> list[dict]:
         files.extend(response.get("files", []))
         page_token = response.get("nextPageToken")
         if not page_token:
-            break
-
-    return files
+            return files
 
 
-def download_file_by_name(service, folder_id: str, name: str, dest_dir: Path) -> bool:
+def is_google_doc(file: dict[str, Any]) -> bool:
+    """Whether a file is a native Google Docs/Sheets/... file, which has no bytes to download."""
+    return str(file.get("mimeType", "")).startswith("application/vnd.google-apps.")
+
+
+def download_file(service: DriveService, file_id: str, dest: Path) -> None:
     """
-    Download a file by exact name from a Drive folder into local storage.
-    Returns True if the file was downloaded successfully, False otherwise.
+    Download a file's bytes to `dest`. It's written to `dest.part` and renamed when complete,
+    so an interrupted download never leaves a truncated file at `dest`.
     """
-    query = (
-        f"'{_escape_drive_query_value(folder_id)}' in parents "
-        f"and name = '{_escape_drive_query_value(name)}' "
-        f"and trashed = false"
-    )
-    response = (
-        service.files()
-        .list(
-            q=query,
-            spaces="drive",
-            fields="files(id, name, mimeType)",
-            pageSize=10,
-        )
-        .execute()
-    )
-    matches = response.get("files", [])
-    if not matches:
-        return False
-    if len(matches) > 1:
-        return False
-
-    file_meta = matches[0]
-    if file_meta.get("mimeType", "").startswith("application/vnd.google-apps."):
-        return False
-
-    dest = (dest_dir) / name
     dest.parent.mkdir(parents=True, exist_ok=True)
-
-    request = service.files().get_media(fileId=file_meta["id"])
-    with dest.open("wb") as fh:
-        downloader = MediaIoBaseDownload(fh, request)
-        done = False
-        while not done:
-            _, done = downloader.next_chunk()
-
-    return True
+    partial = dest.with_name(dest.name + ".part")
+    request = service.files().get_media(fileId=file_id)
+    try:
+        with partial.open("wb") as fh:
+            downloader = MediaIoBaseDownload(fh, request)
+            done = False
+            while not done:
+                _, done = downloader.next_chunk()
+        os.replace(partial, dest)
+    except BaseException:
+        partial.unlink(missing_ok=True)
+        raise

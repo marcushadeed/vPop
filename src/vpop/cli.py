@@ -129,7 +129,7 @@ def main():
     args = parser.parse_args()
     setup_logging(args.verbosity)
 
-    # Imports are deferred: `sync` needs the Drive secrets at import time, `ask` doesn't.
+    # Imports are deferred, so each command loads only the libraries it needs.
     if args.command == "ask":
         ask_command(args)
     elif args.command == "config":
@@ -139,9 +139,7 @@ def main():
     elif args.command == "bench":
         bench(args)
     else:
-        from vpop.sources.android_messages.sync import sync
-
-        sync()
+        sync_command()
 
 
 def load_or_exit() -> Config:
@@ -150,6 +148,19 @@ def load_or_exit() -> Config:
         return load_config()
     except ConfigError as exc:
         raise SystemExit(f"bad config: {exc}") from exc
+
+
+def sync_command() -> None:
+    """Download new backups and import them."""
+    # pylint: disable=import-outside-toplevel
+    from vpop.sources import SourceError
+    from vpop.sources.android_messages.sync import sync
+
+    config = load_or_exit()
+    try:
+        sync(config)
+    except SourceError as exc:
+        raise SystemExit(f"error: {exc}") from exc
 
 
 def ask_command(args: argparse.Namespace) -> None:

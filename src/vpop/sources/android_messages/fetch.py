@@ -1,38 +1,36 @@
-"""Download raw Android Messages XML backups from Drive."""
+"""Download the XML backups SMS Backup & Restore uploads to a Google Drive folder."""
 
 import logging
+from pathlib import Path
 
-from vpop.paths import android_messages_raw_dir
-from vpop.sources.data_locations import MESSAGES_BACKUP_FOLDER_ID
 from vpop.sources.google_drive import (
-    download_file_by_name,
-    get_drive_service,
+    DriveService,
+    download_file,
+    is_google_doc,
     list_folder_files,
 )
 
 log = logging.getLogger(__name__)
 
 
-def download_raw_xml() -> None:
-    """Download the raw XML files from the drive backup"""
-    service = get_drive_service()
-    folder_id = MESSAGES_BACKUP_FOLDER_ID
-    files = list_folder_files(service, folder_id)
-
-    for i, file in enumerate(files):
-        progress = f"({i + 1}/{len(files)})"
-        # Skip if the file is already in the raw directory
-        if (android_messages_raw_dir() / file["name"]).exists():
-            log.debug("%s skipped %s (already downloaded)", progress, file["name"])
+def download_backups(service: DriveService, folder_id: str, raw_dir: Path) -> list[str]:
+    """
+    Download every `.xml` file in the folder that isn't already in `raw_dir` at the same
+    size. Returns the names downloaded.
+    """
+    files = sorted(list_folder_files(service, folder_id), key=lambda f: f["name"])
+    downloaded: list[str] = []
+    for i, file in enumerate(files, start=1):
+        name = file["name"]
+        progress = f"({i}/{len(files)})"
+        if not name.endswith(".xml") or is_google_doc(file):
+            log.debug("%s skipped %s (not an XML backup)", progress, name)
             continue
-
-        # Download the file
-        if file["name"].endswith(".xml"):
-            if download_file_by_name(
-                service, folder_id, file["name"], android_messages_raw_dir()
-            ):
-                log.info("%s downloaded %s", progress, file["name"])
-            else:
-                log.warning("%s couldn't download %s", progress, file["name"])
-        else:
-            log.debug("%s skipped %s (not an XML file)", progress, file["name"])
+        local = raw_dir / name
+        if local.exists() and str(local.stat().st_size) == str(file.get("size")):
+            log.debug("%s skipped %s (already downloaded)", progress, name)
+            continue
+        log.info("%s downloading %s", progress, name)
+        download_file(service, file["id"], local)
+        downloaded.append(name)
+    return downloaded
