@@ -8,10 +8,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from helpers import ScriptedOllama, text_reply, tool_reply
+from helpers import ScriptedOllama, message_toolbox, text_reply, tool_reply
 
 from vpop.assistant.conversation import ToolCall, Trace
-from vpop.assistant.tools import MessageTools
+from vpop.assistant.toolbox import Toolbox
 from vpop.benchmark import cases, fixture, run
 from vpop.benchmark.cases import CASES, Case
 from vpop.benchmark.grading import grade, numbers_in, phone_numbers_in
@@ -27,8 +27,8 @@ def fixture_db() -> Iterator[Path]:
 
 
 @pytest.fixture
-def tools(fixture_db: Path) -> MessageTools:
-    return MessageTools(fixture_db)
+def tools(fixture_db: Path) -> Toolbox:
+    return message_toolbox(fixture_db)
 
 
 def query(path: Path, sql: str, *params: object) -> list[tuple[Any, ...]]:
@@ -228,7 +228,7 @@ def test_bench_config_labels_and_settings() -> None:
     assert claude.settings().effort == "low"  # type: ignore[union-attr]
 
 
-def test_run_case_records_trace_and_grades(tools: MessageTools) -> None:
+def test_run_case_records_trace_and_grades(tools: Toolbox) -> None:
     case = next(c for c in CASES if c.id == "sam-dog-name")
     client = ScriptedOllama(
         [
@@ -248,7 +248,7 @@ def test_run_case_records_trace_and_grades(tools: MessageTools) -> None:
     assert [c["is_error"] for c in record["tool_calls"]] == [False, True]
 
 
-def test_run_case_hits_round_limit(tools: MessageTools) -> None:
+def test_run_case_hits_round_limit(tools: Toolbox) -> None:
     case = make_case(must_include=("x",))
     client = ScriptedOllama([tool_reply("find_threads", name_or_number="Sam")] * 12)
     record = run.run_case(case, OLLAMA, tools, client)
@@ -256,14 +256,14 @@ def test_run_case_hits_round_limit(tools: MessageTools) -> None:
     assert not record["passed"]
 
 
-def test_run_case_records_backend_errors(tools: MessageTools) -> None:
+def test_run_case_records_backend_errors(tools: Toolbox) -> None:
     client = ScriptedOllama([ConnectionError("Failed to connect to Ollama.")])
     record = run.run_case(make_case(), OLLAMA, tools, client)
     assert record["error"] == "ConnectionError: Failed to connect to Ollama."
     assert not record["passed"]
 
 
-def test_run_case_multi_turn_grades_last_answer(tools: MessageTools) -> None:
+def test_run_case_multi_turn_grades_last_answer(tools: Toolbox) -> None:
     case = next(c for c in CASES if c.id == "chris-restaurant-followup")
     client = ScriptedOllama(
         [

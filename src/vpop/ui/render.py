@@ -100,7 +100,7 @@ def result_summary(call: ToolCall) -> str:
     """
     A few words on what a tool call returned: `2 threads`, `14 messages (+36 more)`,
     `30 of 812 messages`, `10 rows`. Errors and empty results (`No messages match.`) are
-    shown as they are. This reads the text formats `vpop.assistant.tools` writes.
+    shown as they are. This reads the text formats the tools write.
     """
     lines = call.result.splitlines() or [""]
     if call.is_error or (len(lines) == 1 and lines[0].startswith("No ")):

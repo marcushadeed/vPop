@@ -3,27 +3,58 @@ Start a conversation with whichever model the config picks, and the plain questi
 when stdin isn't a terminal (at a terminal, `vpop.ui.chat` runs the chat instead).
 """
 
+import logging
 import sys
 from pathlib import Path
 
 from vpop.assistant.conversation import Conversation
 from vpop.assistant.errors import report_failures
-from vpop.assistant.tools import MessageTools
+from vpop.assistant.sql_tools import SqlTools
+from vpop.assistant.toolbox import Toolbox, Toolset
 from vpop.config import Config
-from vpop.db import check_readable
+from vpop.db import DatabaseError
 from vpop.paths import db_path
+from vpop.sources import SourceError
+from vpop.sources.base import SourceUnavailable, SyncedSource
+from vpop.sources.registry import enabled_sources
+
+log = logging.getLogger(__name__)
+
+
+def build_toolbox(config: Config, db: Path) -> Toolbox:
+    """
+    The tools of every enabled source that can be queried now, plus `run_sql` when a synced
+    source's data is in the database at `db`. A source that can't be queried is left out
+    with a warning; if none can, the first one's error is raised.
+    """
+    toolsets: list[Toolset] = []
+    problems: list[SourceError | DatabaseError] = []
+    database = False
+    for source in enabled_sources(config):
+        try:
+            toolsets += source.toolsets(db)
+        except (SourceUnavailable, DatabaseError) as exc:
+            problems.append(exc)
+            continue
+        database = database or isinstance(source, SyncedSource)
+    if not toolsets:
+        raise problems[0] if problems else SourceError("no data sources are enabled")
+    for problem in problems:
+        log.warning("%s", problem)
+    if database:
+        toolsets.append(SqlTools(db))
+    return Toolbox(toolsets, db=db if database else None)
 
 
 def new_conversation(
     config: Config, db: Path | None = None, today: str | None = None
 ) -> Conversation:
     """
-    A conversation over the database at `db` (the default database if None) with the
-    model the config picks. Raises `DatabaseError` if the database isn't usable yet.
+    A conversation over the user's data (synced sources read the database at `db`, the
+    default database if None) with the model the config picks. Raises `DatabaseError` if
+    the database isn't usable yet and no other source is available.
     """
-    db = db or db_path()
-    check_readable(db)
-    tools = MessageTools(db)
+    tools = build_toolbox(config, db or db_path())
     max_rounds = config.assistant.max_rounds
     if config.assistant.local_model:
         # pylint: disable=import-outside-toplevel

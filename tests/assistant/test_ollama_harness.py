@@ -8,22 +8,25 @@ from helpers import (
     ScriptedOllama,
     build_db,
     make_message,
+    message_toolbox,
     text_reply,
     tool_reply,
 )
 
 from vpop.assistant.ollama_harness import OllamaConversation, ollama_tools
-from vpop.assistant.tools import TOOL_NAMES, MessageTools
+from vpop.assistant.toolbox import Toolbox
 from vpop.config import OllamaConfig
 
 
 @pytest.fixture
-def tools(tmp_path: Path) -> MessageTools:
-    return MessageTools(build_db(tmp_path / "vpop.db", [make_message(body="Biscuit")]))
+def tools(tmp_path: Path) -> Toolbox:
+    return message_toolbox(
+        build_db(tmp_path / "vpop.db", [make_message(body="Biscuit")])
+    )
 
 
 def converse(
-    tools: MessageTools, replies: list[object], **kwargs: object
+    tools: Toolbox, replies: list[object], **kwargs: object
 ) -> tuple[OllamaConversation, ScriptedOllama]:
     client = ScriptedOllama(replies)
     conversation = OllamaConversation(
@@ -35,13 +38,13 @@ def converse(
     return conversation, client
 
 
-def test_tool_definitions_cover_every_tool(tools: MessageTools) -> None:
+def test_tool_definitions_cover_every_tool(tools: Toolbox) -> None:
     definitions = ollama_tools(tools)
-    assert [d["function"]["name"] for d in definitions] == list(TOOL_NAMES)
+    assert [d["function"]["name"] for d in definitions] == tools.names
     assert all(d["type"] == "function" for d in definitions)
 
 
-def test_uses_settings_and_today(tools: MessageTools) -> None:
+def test_uses_settings_and_today(tools: Toolbox) -> None:
     conversation, client = converse(
         tools,
         [text_reply("hi")],
@@ -56,7 +59,7 @@ def test_uses_settings_and_today(tools: MessageTools) -> None:
 
 
 def test_tool_loop_runs_tools_and_answers(
-    tools: MessageTools, caplog: pytest.LogCaptureFixture
+    tools: Toolbox, caplog: pytest.LogCaptureFixture
 ) -> None:
     caplog.set_level("INFO")
     conversation, client = converse(
@@ -71,7 +74,7 @@ def test_tool_loop_runs_tools_and_answers(
     assert conversation.trace.rounds == 2
 
 
-def test_listener_hears_tool_calls_but_no_streamed_text(tools: MessageTools) -> None:
+def test_listener_hears_tool_calls_but_no_streamed_text(tools: Toolbox) -> None:
     conversation, _ = converse(
         tools,
         [tool_reply("search_messages", text="biscuit"), text_reply("Biscuit.")],
@@ -83,7 +86,7 @@ def test_listener_hears_tool_calls_but_no_streamed_text(tools: MessageTools) -> 
     assert listener.events == [f"tool: search_messages -> {hit}"]
 
 
-def test_round_limit(tools: MessageTools) -> None:
+def test_round_limit(tools: Toolbox) -> None:
     conversation, _ = converse(
         tools, [tool_reply("find_threads", name_or_number="x")] * 2, max_rounds=2
     )
@@ -91,7 +94,7 @@ def test_round_limit(tools: MessageTools) -> None:
     assert conversation.trace.hit_round_limit
 
 
-def test_failed_question_is_rolled_back(tools: MessageTools) -> None:
+def test_failed_question_is_rolled_back(tools: Toolbox) -> None:
     conversation, client = converse(
         tools,
         [
@@ -108,7 +111,7 @@ def test_failed_question_is_rolled_back(tools: MessageTools) -> None:
 
 
 def test_warns_when_context_is_nearly_full(
-    tools: MessageTools, caplog: pytest.LogCaptureFixture
+    tools: Toolbox, caplog: pytest.LogCaptureFixture
 ) -> None:
     client = ScriptedOllama([text_reply("ok")], prompt_tokens=3900)
     conversation = OllamaConversation(

@@ -15,8 +15,8 @@ from vpop.sources.android_messages.sync import (
     SyncError,
     drive_folder_id,
     import_backups,
-    sync,
 )
+from vpop.sources.sync import sync
 
 
 def backup(name: str, *bodies: str, contact: str = "Sam") -> Path:

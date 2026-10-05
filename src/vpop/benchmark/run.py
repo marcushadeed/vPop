@@ -24,12 +24,14 @@ from typing import Any, Literal
 from vpop.assistant.claude_harness import ClaudeConversation
 from vpop.assistant.conversation import Conversation
 from vpop.assistant.errors import AuthError, describe_error
-from vpop.assistant.tools import MessageTools
+from vpop.assistant.sql_tools import SqlTools
+from vpop.assistant.toolbox import Toolbox
 from vpop.benchmark import fixture
 from vpop.benchmark.cases import CASES, TAGS, Case
 from vpop.benchmark.grading import grade
 from vpop.config import ClaudeConfig, OllamaConfig
 from vpop.paths import bench_results_dir
+from vpop.sources.android_messages.tools import MessageTools
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -61,7 +63,7 @@ class BenchConfig:
 
 
 def new_conversation(
-    config: BenchConfig, tools: MessageTools, client: Any = None
+    config: BenchConfig, tools: Toolbox, client: Any = None
 ) -> Conversation:
     """A fresh conversation for one case, told the fixture's fixed date."""
     settings = config.settings()
@@ -117,7 +119,7 @@ def git_sha() -> str:
 
 
 def run_case(
-    case: Case, config: BenchConfig, tools: MessageTools, client: Any = None
+    case: Case, config: BenchConfig, tools: Toolbox, client: Any = None
 ) -> dict[str, Any]:
     """
     Ask one case in a fresh conversation and return its graded record. A backend failure
@@ -313,7 +315,7 @@ def run(  # pylint: disable=too-many-locals
     with ExitStack() as stack:
         db_file = stack.enter_context(fixture_db())
         stack.enter_context(quiet_tool_calls())
-        tools = MessageTools(db_file)
+        tools = Toolbox([MessageTools(db_file), SqlTools(db_file)], db=db_file)
         out = None
         for config in configs:
             for rep in range(repeat):

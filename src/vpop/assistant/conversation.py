@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from vpop.assistant.prompt import question_message
-from vpop.assistant.tools import MessageTools
+from vpop.assistant.toolbox import Toolbox
 
 log = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ class ToolCall:
 
     @property
     def is_error(self) -> bool:
-        """Whether the call failed; `MessageTools.call` reports failures as `error: ...`."""
+        """Whether the call failed; `Toolbox.call` reports failures as `error: ...`."""
         return self.result.startswith("error:")
 
 
@@ -77,11 +77,9 @@ class Listener:
 
 
 class Conversation(ABC):
-    """A multi-turn conversation over the message database with some model."""
+    """A multi-turn conversation over the user's data with some model."""
 
-    def __init__(
-        self, tools: MessageTools, *, max_rounds: int, today: str | None
-    ) -> None:
+    def __init__(self, tools: Toolbox, *, max_rounds: int, today: str | None) -> None:
         """
         `today` is a `YYYY-MM-DD` date to tell the model instead of the real one, so
         questions like "last month" have a fixed answer.

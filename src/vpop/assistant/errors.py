@@ -5,6 +5,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
 from vpop.db import DatabaseError
+from vpop.sources import SourceError
 
 
 class AuthError(RuntimeError):
@@ -29,7 +30,7 @@ def describe_error(exc: BaseException) -> str | None:  # pylint: disable=too-man
     as a traceback. Backends are looked up in `sys.modules`, so one that was never imported
     isn't imported here just to check.
     """
-    if isinstance(exc, DatabaseError):
+    if isinstance(exc, DatabaseError | SourceError):
         return str(exc)
     ollama = sys.modules.get("ollama")
     if ollama is not None and isinstance(exc, ollama.ResponseError):

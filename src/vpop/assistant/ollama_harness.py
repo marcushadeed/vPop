@@ -1,5 +1,5 @@
 """
-Answer questions about the message database with a local Ollama model; nothing leaves the
+Answer questions about the user's data with a local Ollama model; nothing leaves the
 machine. The model never sees the database directly: it calls the read-only tools in
 `tools` and pulls in only the rows it needs.
 """
@@ -10,8 +10,7 @@ from typing import Any
 import ollama
 
 from vpop.assistant.conversation import Conversation, PendingCall, Reply
-from vpop.assistant.prompt import SYSTEM_PROMPT
-from vpop.assistant.tools import MessageTools
+from vpop.assistant.toolbox import Toolbox
 from vpop.config import AssistantConfig, OllamaConfig
 
 log = logging.getLogger(__name__)
@@ -26,17 +25,17 @@ def parse_think(value: str) -> bool | None:
     return {"on": True, "off": False}.get(value)
 
 
-def ollama_tools(tools: MessageTools) -> list[dict[str, Any]]:
+def ollama_tools(tools: Toolbox) -> list[dict[str, Any]]:
     """The tool definitions in Ollama's (OpenAI-style) shape."""
     return [{"type": "function", "function": schema} for schema in tools.schemas()]
 
 
 class OllamaConversation(Conversation):
-    """A multi-turn conversation over the database with a local Ollama model."""
+    """A multi-turn conversation over the user's data with a local Ollama model."""
 
     def __init__(
         self,
-        tools: MessageTools,
+        tools: Toolbox,
         settings: OllamaConfig | None = None,
         *,
         max_rounds: int = AssistantConfig.max_rounds,
@@ -48,7 +47,7 @@ class OllamaConversation(Conversation):
         self.settings = settings or OllamaConfig()
         self.tool_definitions = ollama_tools(tools)
         self.messages: list[dict[str, Any] | ollama.Message] = [
-            {"role": "system", "content": SYSTEM_PROMPT}
+            {"role": "system", "content": tools.system_prompt}
         ]
 
     @property

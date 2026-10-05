@@ -13,7 +13,7 @@ from anthropic.types.beta import (
     BetaRawContentBlockStartEvent,
     BetaTextBlock,
 )
-from helpers import RecordingListener
+from helpers import RecordingListener, message_toolbox
 
 from vpop.assistant.claude_harness import (
     ClaudeConversation,
@@ -25,15 +25,15 @@ from vpop.assistant.claude_harness import (
     usage_line,
 )
 from vpop.assistant.errors import AuthError
-from vpop.assistant.tools import TOOL_NAMES, MessageTools
+from vpop.assistant.toolbox import Toolbox
 from vpop.benchmark import run
 from vpop.config import ClaudeConfig
 
 
 @pytest.fixture(scope="module")
-def tools() -> Iterator[MessageTools]:
+def tools() -> Iterator[Toolbox]:
     with run.fixture_db() as path:
-        yield MessageTools(path)
+        yield message_toolbox(path)
 
 
 def message(
@@ -122,7 +122,7 @@ class ScriptedClient:
 
 
 def converse(
-    tools: MessageTools, replies: list[BetaMessage | BaseException], **kwargs: Any
+    tools: Toolbox, replies: list[BetaMessage | BaseException], **kwargs: Any
 ) -> tuple[ClaudeConversation, ScriptedMessages]:
     client = ScriptedClient(replies)
     conversation = ClaudeConversation(
@@ -134,15 +134,15 @@ def converse(
     return conversation, client.messages
 
 
-def test_tools_match_query_functions(tools: MessageTools) -> None:
+def test_tools_match_query_functions(tools: Toolbox) -> None:
     definitions = claude_tools(tools)
-    assert [t["name"] for t in definitions] == list(TOOL_NAMES)
+    assert [t["name"] for t in definitions] == tools.names
     find: dict[str, Any] = dict(definitions[0]["input_schema"])
     assert find["required"] == ["name_or_number"]
     assert "limit" in find["properties"]
 
 
-def test_tool_loop_runs_tools_and_returns_answer(tools: MessageTools) -> None:
+def test_tool_loop_runs_tools_and_returns_answer(tools: Toolbox) -> None:
     conversation, api = converse(
         tools,
         [tool_use("find_threads", name_or_number="Mom"), text("Mom's thread.")],
@@ -168,7 +168,7 @@ def test_tool_loop_runs_tools_and_returns_answer(tools: MessageTools) -> None:
     assert trace.prompt_tokens == 200
 
 
-def test_streams_narration_tool_calls_and_answer_in_order(tools: MessageTools) -> None:
+def test_streams_narration_tool_calls_and_answer_in_order(tools: Toolbox) -> None:
     narration = message(
         [
             {"type": "text", "text": "Let me look."},
@@ -192,7 +192,7 @@ def test_streams_narration_tool_calls_and_answer_in_order(tools: MessageTools) -
     ]
 
 
-def test_text_blocks_stream_with_a_line_break_between(tools: MessageTools) -> None:
+def test_text_blocks_stream_with_a_line_break_between(tools: Toolbox) -> None:
     reply = message(
         [{"type": "text", "text": "First."}, {"type": "text", "text": "Second."}],
         "end_turn",
@@ -204,7 +204,7 @@ def test_text_blocks_stream_with_a_line_break_between(tools: MessageTools) -> No
     assert listener.events == ["text: First.\nSecond."]
 
 
-def test_tool_errors_are_flagged(tools: MessageTools) -> None:
+def test_tool_errors_are_flagged(tools: Toolbox) -> None:
     conversation, api = converse(tools, [tool_use("drop_table"), text("sorry")])
     conversation.ask("q")
     result = api.requests[1]["messages"][-1]["content"][0]
@@ -212,7 +212,7 @@ def test_tool_errors_are_flagged(tools: MessageTools) -> None:
     assert "unknown tool" in result["content"]
 
 
-def test_round_limit(tools: MessageTools) -> None:
+def test_round_limit(tools: Toolbox) -> None:
     conversation, _ = converse(
         tools, [tool_use("find_threads", name_or_number="x")] * 2, max_rounds=2
     )
@@ -220,7 +220,7 @@ def test_round_limit(tools: MessageTools) -> None:
     assert conversation.trace.hit_round_limit
 
 
-def test_refusal_and_max_tokens(tools: MessageTools) -> None:
+def test_refusal_and_max_tokens(tools: Toolbox) -> None:
     refusal = message(
         [], "refusal", stop_details={"type": "refusal", "category": "cyber"}
     )
@@ -231,7 +231,7 @@ def test_refusal_and_max_tokens(tools: MessageTools) -> None:
     assert "max_tokens" in conversation.ask("q2")
 
 
-def test_tool_call_cut_off_by_max_tokens_is_not_run(tools: MessageTools) -> None:
+def test_tool_call_cut_off_by_max_tokens_is_not_run(tools: Toolbox) -> None:
     cut = message(
         [
             {"type": "text", "text": "Let me look"},
@@ -281,7 +281,7 @@ def test_unknown_model_has_no_price() -> None:
     assert "$" not in line
 
 
-def test_trace_splits_cached_input(tools: MessageTools) -> None:
+def test_trace_splits_cached_input(tools: Toolbox) -> None:
     conversation, _ = converse(
         tools, [text("a", cache_read_input_tokens=500, cache_creation_input_tokens=50)]
     )
@@ -295,7 +295,7 @@ def test_trace_splits_cached_input(tools: MessageTools) -> None:
 
 
 def test_ask_logs_question_and_session_cost(
-    tools: MessageTools, caplog: pytest.LogCaptureFixture
+    tools: Toolbox, caplog: pytest.LogCaptureFixture
 ) -> None:
     caplog.set_level("INFO")
     replies = [
@@ -315,7 +315,7 @@ def test_ask_logs_question_and_session_cost(
 
 
 def test_unpriced_model_is_flagged_on_every_question(
-    tools: MessageTools, caplog: pytest.LogCaptureFixture
+    tools: Toolbox, caplog: pytest.LogCaptureFixture
 ) -> None:
     caplog.set_level("INFO")
     unknown = "claude-someday-9"
@@ -330,7 +330,7 @@ def test_unpriced_model_is_flagged_on_every_question(
     assert len(lines) == 2
 
 
-def test_failed_question_is_rolled_back(tools: MessageTools) -> None:
+def test_failed_question_is_rolled_back(tools: Toolbox) -> None:
     error = anthropic.APIConnectionError(
         request=httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
     )
@@ -395,7 +395,7 @@ class RejectingMessages:
     [(401, anthropic.AuthenticationError), (403, anthropic.PermissionDeniedError)],
 )
 def test_rejected_credentials_raise_auth_error(
-    tools: MessageTools, status: int, error: type[anthropic.APIStatusError]
+    tools: Toolbox, status: int, error: type[anthropic.APIStatusError]
 ) -> None:
     client = ScriptedClient([])
     client.messages = RejectingMessages(status, error)  # type: ignore[assignment]

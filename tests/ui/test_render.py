@@ -5,12 +5,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from helpers import SAM, build_db, make_message, outgoing
+from helpers import SAM, build_db, make_message, message_toolbox, outgoing
 from rich.console import RenderableType
 from rich.text import Text
 
 from vpop.assistant.conversation import ToolCall, Trace
-from vpop.assistant.tools import MessageTools
+from vpop.assistant.toolbox import Toolbox
 from vpop.config import parse_config
 from vpop.ui import render
 
@@ -28,8 +28,8 @@ def plain(renderable: RenderableType, width: int = 60, height: int = 25) -> str:
 
 
 @pytest.fixture
-def tools(tmp_path: Path) -> MessageTools:
-    return MessageTools(
+def tools(tmp_path: Path) -> Toolbox:
+    return message_toolbox(
         build_db(
             tmp_path / "vpop.db",
             [
@@ -55,7 +55,7 @@ def tools(tmp_path: Path) -> MessageTools:
     )
 
 
-def run(tools: MessageTools, name: str, **arguments: Any) -> ToolCall:
+def run(tools: Toolbox, name: str, **arguments: Any) -> ToolCall:
     """A tool call as the conversation records it, with the tool's real result."""
     return ToolCall(name, arguments, tools.call(name, arguments))
 
@@ -77,24 +77,24 @@ def run(tools: MessageTools, name: str, **arguments: Any) -> ToolCall:
     ],
 )
 def test_result_summary(
-    tools: MessageTools, name: str, arguments: dict[str, Any], summary: str
+    tools: Toolbox, name: str, arguments: dict[str, Any], summary: str
 ) -> None:
     assert render.result_summary(run(tools, name, **arguments)) == summary
 
 
-def test_result_summary_of_an_error_is_the_error(tools: MessageTools) -> None:
+def test_result_summary_of_an_error_is_the_error(tools: Toolbox) -> None:
     call = run(tools, "search_messages", since="August")
     assert render.result_summary(call).startswith("error: since must look like")
 
 
-def test_tool_call_shows_arguments_and_summary(tools: MessageTools) -> None:
+def test_tool_call_shows_arguments_and_summary(tools: Toolbox) -> None:
     call = run(tools, "search_messages", text="june", limit=1)
     assert plain(render.tool_call(call)) == (
         '● search_messages(text: "june", limit: 1)\n  ⎿  1 message (+2 more)\n'
     )
 
 
-def test_tool_call_stays_on_one_line_when_narrow(tools: MessageTools) -> None:
+def test_tool_call_stays_on_one_line_when_narrow(tools: Toolbox) -> None:
     call = run(tools, "run_sql", query="SELECT body FROM messages WHERE body != ''")
     first, second = plain(render.tool_call(call), width=30).splitlines()
     assert first == '● run_sql(query: "SELECT body…'

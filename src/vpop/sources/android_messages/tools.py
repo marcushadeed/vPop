@@ -1,102 +1,57 @@
 """
-Read-only query tools over the message database, used by the LLM harnesses.
-
-Every tool returns compact text rather than JSON, one line per message
-(`timestamp | thread | from | body`), so tool results stay small. Bodies are cut to
-`BODY_CHARS`, result sets are capped with a trailing `… N more` line saying how to page, and
-no result is longer than `MAX_RESULT_CHARS`.
-
-`MessageTools` binds the tools to one database file. The tool definitions the models see are
-built from the methods' signatures and docstrings, so the docstrings are written for the model.
+The message tools: find threads, search messages and read a conversation, over the `messages`
+and `threads` tables. Results have one line per message (`timestamp | thread | from | body`),
+with bodies cut to `BODY_CHARS`.
 """
 
-import calendar
-import inspect
 import re
-import sqlite3
-import time
-import types
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from contextlib import closing
-from datetime import datetime
-from pathlib import Path
-from typing import Any, Union, get_args, get_origin, get_type_hints
+from sqlite3 import Connection
 
-from vpop.db import DatabaseError, connect_readonly
+from vpop.assistant.toolbox import (
+    LABEL_CHARS,
+    DatabaseToolset,
+    clamp_limit,
+    one_line,
+    time_range,
+)
 from vpop.sources.android_messages.model import Direction, normalize_address
 from vpop.sources.android_messages.model import thread_key as normalize_thread_key
 
-BODY_CHARS = 300
-SQL_CELL_CHARS = 300
-LABEL_CHARS = 200
-MAX_LIMIT = 500
-# About 3k tokens: big enough for a page of messages, small enough that one call can't fill a
-# local model's context window.
-MAX_RESULT_CHARS = 12_000
-SQL_TIMEOUT_SECONDS = 5.0
+PROMPT = """\
+Text messages are in SQLite. Table `messages`, one row per message:
+- `timestamp`: local time as text, `YYYY-MM-DD HH:MM:SS`. It sorts and compares as a string and \
+works with date() and strftime().
+- `direction`: `incoming` or `outgoing`. Outgoing messages were written by the user ("me").
+- `was_sent`: 0 for an outgoing message that never went out (failed or still queued).
+- `thread_key`: the conversation, and the column to group by for anything "per person". A \
+single E.164 number (`+1` then ten digits) for a 1:1 thread, a sorted comma-separated list of \
+numbers for a group, or an `...@rcs.google.com` id for an RCS group.
+- `sender`: the number of whoever sent an incoming message; always empty for outgoing ones, \
+so never group outgoing messages by sender.
+- `contact_name`: the contact name(s) the phone showed for the thread. It can be empty or \
+`(Unknown)`, and a group lists several names.
+- `body`: the message text. Reactions look like `❤️ to “...”` or `Liked “...”`.
+- `attachments`: content types of attached files (e.g. `image/jpeg`), comma-separated.
+- `epoch_ms`, `id`, `rcs_message_id`, `from_mms`: bookkeeping, rarely useful.
+Table `threads`, one row per conversation: `thread_key`, `label` (its latest contact name), \
+`message_count`, `first` and `last` (timestamps).
 
-# Authorizer actions a `run_sql` query may perform: reading and calling functions only.
-ALLOWED_SQL_ACTIONS = {
-    sqlite3.SQLITE_SELECT,
-    sqlite3.SQLITE_READ,
-    sqlite3.SQLITE_FUNCTION,
-    sqlite3.SQLITE_RECURSIVE,
-}
-
-TOOL_NAMES = ("find_threads", "search_messages", "read_thread", "run_sql")
-
-TIME_PATTERN = re.compile(
-    r"(\d{4})-(\d{2})(?:-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?)?"
-)
-
-
-def one_line(text: str, limit: int = BODY_CHARS) -> str:
-    """Collapse newlines and cut `text` to `limit` characters."""
-    flat = re.sub(r"\s*\n\s*", " ⏎ ", text.strip())
-    return flat if len(flat) <= limit else flat[: limit - 1] + "…"
-
-
-def clamp_limit(limit: int) -> int:
-    """Keep a caller-supplied limit between 1 and `MAX_LIMIT`."""
-    return max(1, min(int(limit), MAX_LIMIT))
-
-
-def time_range(value: str, name: str) -> tuple[str, str]:
-    """
-    The first and last second a time covers, as `YYYY-MM-DD HH:MM:SS`: a month
-    (`2026-08`), a day (`2026-08-01`), a minute (`2026-08-01 14:30`) or a second. Raises a
-    `ValueError` naming the accepted forms for anything else, so a misformatted bound is an
-    error the model can fix rather than a silent "no messages".
-    """
-    match = TIME_PATTERN.fullmatch(value.strip())
-    try:
-        if match is None:
-            raise ValueError
-        year, month, day, hour, minute, second = match.groups()
-        if day is None:
-            last_day = calendar.monthrange(int(year), int(month))[1]
-            first = datetime(int(year), int(month), 1)
-            last = datetime(int(year), int(month), last_day, 23, 59, 59)
-        elif hour is None:
-            first = datetime(int(year), int(month), int(day))
-            last = first.replace(hour=23, minute=59, second=59)
-        else:
-            first = datetime(
-                int(year),
-                int(month),
-                int(day),
-                int(hour),
-                int(minute),
-                int(second or 0),
-            )
-            last = first if second else first.replace(second=59)
-    except ValueError:
-        raise ValueError(
-            f'{name} must look like "2026-08", "2026-08-01", "2026-08-01 14:30" or '
-            f'"2026-08-01 14:30:00", not {value!r}'
-        ) from None
-    fmt = "%Y-%m-%d %H:%M:%S"
-    return first.strftime(fmt), last.strftime(fmt)
+How to work with messages:
+- When a question names a person, resolve them with find_threads first. A person can have \
+more than one thread (a new number, group chats), so look at every match that fits.
+- Use search_messages to find candidate messages (`text` for words, `contains` for exact \
+codes, numbers or emoji), then read_thread with `around` to check the surrounding \
+conversation before drawing conclusions from a single message.
+- Use run_sql for counts, rankings and other aggregates. Examples:
+  - Who I texted most in 2025: `SELECT m.thread_key, t.label, COUNT(*) AS n FROM messages m \
+JOIN threads t USING (thread_key) WHERE m.timestamp >= '2025-01-01' AND m.timestamp < \
+'2026-01-01' GROUP BY m.thread_key ORDER BY n DESC LIMIT 10`
+  - Messages per month in one thread: `SELECT strftime('%Y-%m', timestamp) AS month, COUNT(*) \
+FROM messages WHERE thread_key = '<thread_key>' GROUP BY month ORDER BY month`
+- When you rely on a message, cite its timestamp and who said it.
+"""
 
 
 def like_pattern(text: str) -> str:
@@ -138,111 +93,15 @@ def sender_label(
     return names.get(sender) or sender or "unknown"
 
 
-def cap_result(text: str) -> str:
-    """Cut a tool result to `MAX_RESULT_CHARS` at a line break, saying how to narrow it."""
-    if len(text) <= MAX_RESULT_CHARS:
-        return text
-    cut = text.rfind("\n", 0, MAX_RESULT_CHARS)
-    return (
-        text[: cut if cut > 0 else MAX_RESULT_CHARS]
-        + f"\n… output cut at {MAX_RESULT_CHARS:,} characters; narrow the query (add "
-        "filters, lower the limit, or aggregate)"
-    )
+class MessageTools(DatabaseToolset):
+    """The message tools, bound to one database file."""
 
-
-def json_type(annotation: Any) -> str:
-    """The JSON Schema type for a parameter annotation such as `int` or `str | None`."""
-    if get_origin(annotation) in (Union, types.UnionType):
-        annotation = next(
-            arg for arg in get_args(annotation) if arg is not types.NoneType
-        )
-    return {str: "string", int: "integer", float: "number", bool: "boolean"}[annotation]
-
-
-def split_docstring(doc: str) -> tuple[str, dict[str, str]]:
-    """A Google-style docstring's description, and its `Args:` entries by name."""
-    description, _, args = inspect.cleandoc(doc).partition("\nArgs:\n")
-    params: dict[str, str] = {}
-    current = None
-    for line in args.splitlines():
-        match = re.match(r"\s{2,}(\w+): (.*)", line)
-        if match:
-            current, text = match.groups()
-            params[current] = text
-        elif current and line.strip():
-            params[current] += " " + line.strip()
-    return description.strip(), params
-
-
-def tool_schema(func: Callable[..., str]) -> dict[str, Any]:
-    """
-    A provider-neutral tool definition (`name`, `description`, JSON Schema `parameters`)
-    from a function's signature and docstring. Only parameters without a default are
-    required, so the model isn't pushed to fill in every optional filter.
-    """
-    description, docs = split_docstring(func.__doc__ or "")
-    hints = get_type_hints(func)
-    properties: dict[str, Any] = {}
-    required: list[str] = []
-    for name, param in inspect.signature(func).parameters.items():
-        properties[name] = {"type": json_type(hints[name])}
-        if name in docs:
-            properties[name]["description"] = docs[name]
-        if param.default is inspect.Parameter.empty:
-            required.append(name)
-    return {
-        "name": func.__name__,
-        "description": description,
-        "parameters": {
-            "type": "object",
-            "properties": properties,
-            "required": required,
-        },
-    }
-
-
-class MessageTools:
-    """The query tools, bound to one database file."""
-
-    def __init__(self, db: Path) -> None:
-        self.db = db
-
-    @property
-    def functions(self) -> dict[str, Callable[..., str]]:
-        """The tools by name, as bound methods."""
-        return {name: getattr(self, name) for name in TOOL_NAMES}
-
-    def schemas(self) -> list[dict[str, Any]]:
-        """Provider-neutral definitions of every tool (see `tool_schema`)."""
-        return [tool_schema(func) for func in self.functions.values()]
-
-    def call(self, name: str, arguments: Mapping[str, Any]) -> str:
-        """
-        Run a tool call and return its result, or an `error: ...` the model can correct.
-
-        Small models often pass `null` or `""` for arguments they don't mean to set, so those
-        are dropped rather than treated as filters. Arguments are checked against the
-        signature first, so a `TypeError` from inside a tool is a bug, not a bad call.
-        """
-        func = self.functions.get(name)
-        if func is None:
-            return f"error: unknown tool {name!r}; use one of {', '.join(TOOL_NAMES)}"
-        kwargs = {k: v for k, v in arguments.items() if v not in (None, "")}
-        try:
-            inspect.signature(func).bind(**kwargs)
-        except TypeError as exc:
-            return f"error: {exc}"
-        try:
-            return cap_result(func(**kwargs))
-        except (ValueError, sqlite3.Error, DatabaseError) as exc:
-            return f"error: {exc}"
-
-    def connect(self) -> sqlite3.Connection:
-        """A read-only connection to the database."""
-        return connect_readonly(self.db)
+    tool_names = ("find_threads", "search_messages", "read_thread")
+    data = "text messages (SMS, MMS and RCS from their Android phone)"
+    prompt = PROMPT
 
     @staticmethod
-    def contact_names(conn: sqlite3.Connection) -> dict[str, str]:
+    def contact_names(conn: Connection) -> dict[str, str]:
         """
         Each 1:1 thread's number mapped to its contact name. Group messages only carry the
         sender's number, so this is how a sender in a group gets a name.
@@ -254,7 +113,7 @@ class MessageTools:
         return dict(rows.fetchall())
 
     @staticmethod
-    def thread_label(conn: sqlite3.Connection, key: str) -> str:
+    def thread_label(conn: Connection, key: str) -> str:
         """A thread's most recent contact name, or `unknown`."""
         row = conn.execute(
             "SELECT label FROM threads WHERE thread_key = ?", (key,)
@@ -499,74 +358,3 @@ class MessageTools:
         if later:
             lines.append(f"… {later} later (use since or around)")
         return "\n".join(lines)
-
-    def run_sql(self, query: str, limit: int = 200) -> str:
-        """
-        Run one read-only SQL query against the database, for counts and aggregates.
-
-        Only reading is allowed (SELECT or WITH), one statement per call, and a query that
-        runs longer than a few seconds is stopped. Prefer the other tools for reading
-        messages; use this for questions like "how many texts per month with X" or "who did
-        I text most in 2025". Results are cut to `limit` rows.
-
-        Args:
-            query: A single SQLite SELECT or WITH statement over the messages and threads
-                tables.
-            limit: Maximum number of rows to return.
-        """
-        statement = query.strip()
-        if not statement:
-            raise ValueError("query is empty")
-        limit = clamp_limit(limit)
-        denied: list[int] = []
-        deadline = time.monotonic() + SQL_TIMEOUT_SECONDS
-        timed_out = False
-
-        def authorize(action: int, *_: object) -> int:
-            if action in ALLOWED_SQL_ACTIONS:
-                return sqlite3.SQLITE_OK
-            denied.append(action)
-            return sqlite3.SQLITE_DENY
-
-        def past_deadline() -> int:
-            nonlocal timed_out
-            timed_out = time.monotonic() > deadline
-            return int(timed_out)
-
-        with closing(self.connect()) as conn:
-            conn.set_authorizer(authorize)
-            conn.set_progress_handler(past_deadline, 10_000)
-            try:
-                cursor = conn.execute(statement)
-                rows = cursor.fetchmany(limit + 1)
-            except sqlite3.DatabaseError as exc:
-                if denied:
-                    raise ValueError(
-                        "only read-only queries are allowed (SELECT or WITH)"
-                    ) from exc
-                if timed_out:
-                    raise ValueError(
-                        f"query stopped after {SQL_TIMEOUT_SECONDS:g}s; add filters, "
-                        "aggregate further, or bound any recursive CTE"
-                    ) from exc
-                raise
-            columns = [col[0] for col in cursor.description or []]
-
-        if not rows:
-            return " | ".join(columns) + "\n(no rows)"
-        lines = [" | ".join(columns)]
-        lines += [" | ".join(sql_cell(value) for value in row) for row in rows[:limit]]
-        if len(rows) > limit:
-            lines.append(
-                f"… more rows (raise limit or aggregate further, max {MAX_LIMIT})"
-            )
-        return "\n".join(lines)
-
-
-def sql_cell(value: object) -> str:
-    """Render one result cell, making NULL and empty strings visible."""
-    if value is None:
-        return "NULL"
-    if value == "":
-        return '""'
-    return one_line(str(value), SQL_CELL_CHARS)

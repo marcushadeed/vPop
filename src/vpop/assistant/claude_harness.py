@@ -1,5 +1,5 @@
 """
-Answer questions about the message database with Claude over the Anthropic API.
+Answer questions about the user's data with Claude over the Anthropic API.
 
 Used when `local_model = false` in the config. It shares the system prompt, tools and tool
 loop with the local harness; only the model calls differ. The tool results the model asks
@@ -22,8 +22,7 @@ from anthropic.types.beta import (
 
 from vpop.assistant.conversation import Conversation, PendingCall, Reply
 from vpop.assistant.errors import AuthError, MissingCredentialsError, api_error_detail
-from vpop.assistant.prompt import SYSTEM_PROMPT
-from vpop.assistant.tools import MessageTools
+from vpop.assistant.toolbox import Toolbox
 from vpop.config import AssistantConfig, ClaudeConfig
 from vpop.fsutil import read_env_file
 from vpop.paths import anthropic_env_path
@@ -219,7 +218,7 @@ def make_client() -> tuple[anthropic.Anthropic, str]:
     return client, source
 
 
-def claude_tools(tools: MessageTools) -> list[BetaToolParam]:
+def claude_tools(tools: Toolbox) -> list[BetaToolParam]:
     """The tool definitions in the Anthropic API's shape."""
     return [
         {
@@ -249,7 +248,7 @@ def refusal_text(message: BetaMessage) -> str:
 
 class ClaudeConversation(Conversation):  # pylint: disable=too-many-instance-attributes
     """
-    A multi-turn conversation over the database with Claude.
+    A multi-turn conversation over the user's data with Claude.
 
     The history is only ever appended to, which keeps the cached prefix valid from one
     request to the next.
@@ -257,7 +256,7 @@ class ClaudeConversation(Conversation):  # pylint: disable=too-many-instance-att
 
     def __init__(
         self,
-        tools: MessageTools,
+        tools: Toolbox,
         settings: ClaudeConfig | None = None,
         *,
         max_rounds: int = AssistantConfig.max_rounds,
@@ -297,7 +296,7 @@ class ClaudeConversation(Conversation):  # pylint: disable=too-many-instance-att
             with self.client.beta.messages.stream(
                 model=self.settings.model,
                 max_tokens=self.settings.max_tokens,
-                system=SYSTEM_PROMPT,
+                system=self.tools.system_prompt,
                 messages=self.messages,
                 tools=self.tool_definitions,
                 thinking={"type": "adaptive"},

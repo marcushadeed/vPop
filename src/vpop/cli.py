@@ -208,7 +208,7 @@ def sync_command(args: argparse.Namespace) -> None:
     # pylint: disable=import-outside-toplevel
     from vpop.db import DatabaseError
     from vpop.sources import SourceError
-    from vpop.sources.android_messages.sync import sync
+    from vpop.sources.sync import sync
 
     config = load_or_exit()
     try:

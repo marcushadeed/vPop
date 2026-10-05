@@ -10,8 +10,11 @@ import ollama
 
 from vpop import db
 from vpop.assistant.conversation import Listener, ToolCall
+from vpop.assistant.sql_tools import SqlTools
+from vpop.assistant.toolbox import Toolbox
 from vpop.sources.android_messages.model import Direction, Message
 from vpop.sources.android_messages.store import insert_messages
+from vpop.sources.android_messages.tools import MessageTools
 
 SAM = "+12405551234"
 
@@ -47,6 +50,11 @@ def build_db(path: Path, messages: Iterable[Message]) -> Path:
     with closing(db.connect(path)) as conn:
         insert_messages(conn, messages)
     return path
+
+
+def message_toolbox(path: Path) -> Toolbox:
+    """The tools a messages-only setup gets: the message tools and run_sql."""
+    return Toolbox([MessageTools(path), SqlTools(path)], db=path)
 
 
 class ScriptedOllama:

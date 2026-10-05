@@ -149,7 +149,8 @@ class Chat:
         `describe_error`), ends only that question; rejected credentials and unexpected
         errors end the chat by raising.
         """
-        self.console.print(render.header(*message_summary(self.conversation.tools.db)))
+        db = self.conversation.tools.db
+        self.console.print(render.header(*(message_summary(db) if db else (0, None))))
         self.console.print()
         while True:
             try:

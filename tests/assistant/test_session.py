@@ -10,14 +10,19 @@ import ollama
 import pytest
 from helpers import build_db, make_message
 
+from vpop.assistant import session
 from vpop.assistant.claude_harness import ClaudeConversation
 from vpop.assistant.conversation import Conversation
 from vpop.assistant.errors import AuthError, describe_error
 from vpop.assistant.ollama_harness import OllamaConversation
-from vpop.assistant.session import new_conversation, repl
+from vpop.assistant.session import build_toolbox, new_conversation, repl
+from vpop.assistant.toolbox import Toolset
 from vpop.config import ClaudeConfig, Config, parse_config
 from vpop.db import DatabaseError
 from vpop.paths import db_path
+from vpop.sources import SourceError
+from vpop.sources.android_messages.source import AndroidMessages
+from vpop.sources.base import Source, SourceUnavailable
 
 
 @pytest.fixture
@@ -45,6 +50,78 @@ def test_remote_model_picks_claude(
 def test_missing_database_fails_before_any_model_call() -> None:
     with pytest.raises(DatabaseError, match="vpop sync"):
         new_conversation(Config())
+
+
+def test_messages_only_toolbox_has_the_message_tools_and_run_sql(
+    database: Path,
+) -> None:
+    box = build_toolbox(Config(), database)
+    assert box.names == ["find_threads", "search_messages", "read_thread", "run_sql"]
+    assert box.db == database
+
+
+class Agenda(Toolset):
+    tool_names = ("agenda",)
+    data = "agenda items"
+
+    def agenda(self) -> str:
+        """Today's agenda."""
+        return "nothing"
+
+
+class LiveAgenda(Source):
+    """A live source that's available unless `down` is set."""
+
+    name = "agenda"
+    down = False
+
+    def enabled(self) -> bool:
+        return True
+
+    def toolsets(self, db: Path) -> list[Toolset]:
+        if self.down:
+            raise SourceUnavailable("agenda: run `vpop auth agenda`")
+        return [Agenda()]
+
+
+def use_sources(monkeypatch: pytest.MonkeyPatch, *sources: type[Source]) -> None:
+    monkeypatch.setattr(
+        session, "enabled_sources", lambda config: [cls(config) for cls in sources]
+    )
+
+
+def test_live_source_works_without_a_database(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    use_sources(monkeypatch, AndroidMessages, LiveAgenda)
+    box = build_toolbox(Config(), db_path())
+    assert box.names == ["agenda"]  # no run_sql without the database
+    assert box.db is None
+    assert "vpop sync" in caplog.text
+    assert "agenda items" in box.system_prompt
+    assert "Table `messages`" not in box.system_prompt
+
+
+def test_unavailable_source_is_skipped_with_a_warning(
+    database: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setattr(LiveAgenda, "down", True)
+    use_sources(monkeypatch, AndroidMessages, LiveAgenda)
+    box = build_toolbox(Config(), database)
+    assert "agenda" not in box.names
+    assert "run `vpop auth agenda`" in caplog.text
+
+
+def test_no_available_source_raises_the_first_reason(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(LiveAgenda, "down", True)
+    use_sources(monkeypatch, LiveAgenda)
+    with pytest.raises(SourceUnavailable, match="vpop auth agenda"):
+        build_toolbox(Config(), db_path())
+    use_sources(monkeypatch)
+    with pytest.raises(SourceError, match="no data sources"):
+        build_toolbox(Config(), db_path())
 
 
 class Scripted(Conversation):

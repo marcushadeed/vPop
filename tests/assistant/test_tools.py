@@ -5,10 +5,11 @@ from contextlib import closing
 from pathlib import Path
 
 import pytest
-from helpers import SAM, build_db, make_message, outgoing
+from helpers import SAM, build_db, make_message, message_toolbox, outgoing
 
-from vpop.assistant import tools as tools_module
-from vpop.assistant.tools import MessageTools, time_range, tool_schema
+from vpop.assistant import sql_tools, toolbox
+from vpop.assistant.toolbox import Toolbox, time_range, tool_schema
+from vpop.sources.android_messages.tools import MessageTools
 
 ALEX = "+13015550000"
 GROUP = f"{SAM},{ALEX}"
@@ -47,6 +48,11 @@ def tools(db_file: Path) -> MessageTools:
     return MessageTools(db_file)
 
 
+@pytest.fixture
+def box(db_file: Path) -> Toolbox:
+    return message_toolbox(db_file)
+
+
 @pytest.mark.parametrize(
     "query", ["240-555-1234", "(240) 555 1234", "+12405551234", "5551234"]
 )
@@ -77,8 +83,8 @@ def test_search_words_match_word_forms(tools: MessageTools) -> None:
     assert tools.search_messages(text="moving paris") == "No messages match."
 
 
-def test_search_text_without_words_points_to_contains(tools: MessageTools) -> None:
-    assert "use contains" in tools.call("search_messages", {"text": "%%"})
+def test_search_text_without_words_points_to_contains(box: Toolbox) -> None:
+    assert "use contains" in box.call("search_messages", {"text": "%%"})
 
 
 def test_contains_is_a_literal_substring(tools: MessageTools) -> None:
@@ -111,8 +117,8 @@ def test_search_date_bounds(tools: MessageTools) -> None:
 @pytest.mark.parametrize(
     ("bad", "field"), [("2026/08/01", "since"), ("August 2026", "until")]
 )
-def test_bad_dates_are_errors(tools: MessageTools, bad: str, field: str) -> None:
-    result = tools.call("search_messages", {field: bad})
+def test_bad_dates_are_errors(box: Toolbox, bad: str, field: str) -> None:
+    result = box.call("search_messages", {field: bad})
     assert result.startswith(f"error: {field} must look like")
 
 
@@ -159,7 +165,7 @@ def test_body_is_truncated_to_one_line(db_file: Path) -> None:
         MessageTools(db_file).search_messages(contains="line one").rsplit(" | ", 1)[-1]
     )
     assert body.startswith("line one ⏎ line two")
-    assert len(body) == tools_module.BODY_CHARS
+    assert len(body) == toolbox.BODY_CHARS
     assert body.endswith("…")
 
 
@@ -235,8 +241,8 @@ def test_read_thread_unknown(tools: MessageTools) -> None:
     assert tools.read_thread("+19999999999").startswith("No messages in thread")
 
 
-def test_run_sql_aggregate(tools: MessageTools) -> None:
-    result = tools.run_sql(
+def test_run_sql_aggregate(box: Toolbox) -> None:
+    result = box.functions["run_sql"](
         "SELECT thread_key, COUNT(*) AS n FROM messages GROUP BY thread_key ORDER BY n DESC;"
     )
     assert result.splitlines()[:2] == ["thread_key | n", f"{SAM} | 3"]
@@ -250,12 +256,12 @@ def test_run_sql_aggregate(tools: MessageTools) -> None:
         "SELECT label FROM threads",
     ],
 )
-def test_run_sql_accepts_valid_reads(tools: MessageTools, query: str) -> None:
-    assert not tools.call("run_sql", {"query": query}).startswith("error")
+def test_run_sql_accepts_valid_reads(box: Toolbox, query: str) -> None:
+    assert not box.call("run_sql", {"query": query}).startswith("error")
 
 
-def test_run_sql_row_cap(tools: MessageTools) -> None:
-    lines = tools.run_sql("SELECT body FROM messages", limit=2).splitlines()
+def test_run_sql_row_cap(box: Toolbox) -> None:
+    lines = box.functions["run_sql"]("SELECT body FROM messages", limit=2).splitlines()
     assert len(lines) == 4
     assert lines[-1].startswith("… more rows")
 
@@ -273,8 +279,8 @@ def test_run_sql_row_cap(tools: MessageTools) -> None:
         "",
     ],
 )
-def test_run_sql_cannot_write(tools: MessageTools, db_file: Path, query: str) -> None:
-    assert tools.call(
+def test_run_sql_cannot_write(box: Toolbox, db_file: Path, query: str) -> None:
+    assert box.call(
         "run_sql", {"query": query} if query else {"query": " "}
     ).startswith("error:")
     with closing(sqlite3.connect(db_file)) as conn:
@@ -287,17 +293,17 @@ def test_run_sql_cannot_write(tools: MessageTools, db_file: Path, query: str) ->
         )
 
 
-def test_run_sql_names_the_read_only_rule(tools: MessageTools) -> None:
-    assert tools.call("run_sql", {"query": "DELETE FROM messages"}) == (
+def test_run_sql_names_the_read_only_rule(box: Toolbox) -> None:
+    assert box.call("run_sql", {"query": "DELETE FROM messages"}) == (
         "error: only read-only queries are allowed (SELECT or WITH)"
     )
 
 
 def test_runaway_query_is_stopped(
-    tools: MessageTools, monkeypatch: pytest.MonkeyPatch
+    box: Toolbox, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(tools_module, "SQL_TIMEOUT_SECONDS", 0.2)
-    result = tools.call(
+    monkeypatch.setattr(sql_tools, "SQL_TIMEOUT_SECONDS", 0.2)
+    result = box.call(
         "run_sql",
         {
             "query": "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) "
@@ -307,30 +313,28 @@ def test_runaway_query_is_stopped(
     assert result.startswith("error: query stopped after 0.2s")
 
 
-def test_results_are_capped(
-    tools: MessageTools, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(tools_module, "MAX_RESULT_CHARS", 80)
-    result = tools.call("search_messages", {})
+def test_results_are_capped(box: Toolbox, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(toolbox, "MAX_RESULT_CHARS", 80)
+    result = box.call("search_messages", {})
     assert len(result.splitlines()[0]) <= 80
     assert result.splitlines()[-1].startswith("… output cut at 80 characters")
 
 
-def test_call_drops_empty_arguments_and_checks_the_rest(tools: MessageTools) -> None:
-    assert "Denver" in tools.call("search_messages", {"text": "denver", "sender": None})
-    assert tools.call("search_messages", {"bogus": 1}).startswith("error:")
-    assert tools.call("drop_table", {}).startswith("error: unknown tool")
+def test_call_drops_empty_arguments_and_checks_the_rest(box: Toolbox) -> None:
+    assert "Denver" in box.call("search_messages", {"text": "denver", "sender": None})
+    assert box.call("search_messages", {"bogus": 1}).startswith("error:")
+    assert box.call("drop_table", {}).startswith("error: unknown tool")
 
 
 def test_missing_database_is_a_tool_error(tmp_path: Path) -> None:
-    result = MessageTools(tmp_path / "none.db").call(
+    result = message_toolbox(tmp_path / "none.db").call(
         "find_threads", {"name_or_number": "x"}
     )
     assert result.startswith("error: No database at")
 
 
-def test_tool_schema_from_signature_and_docstring(tools: MessageTools) -> None:
-    schema = tool_schema(tools.search_messages)
+def test_tool_schema_from_signature_and_docstring(box: Toolbox) -> None:
+    schema = tool_schema(box.functions["search_messages"])
     assert schema["name"] == "search_messages"
     assert schema["description"].startswith("Search messages")
     assert "Args:" not in schema["description"]
@@ -339,5 +343,5 @@ def test_tool_schema_from_signature_and_docstring(tools: MessageTools) -> None:
     assert params["properties"]["limit"]["type"] == "integer"
     assert params["properties"]["text"]["type"] == "string"
     assert "moving" in params["properties"]["text"]["description"]
-    find = tool_schema(tools.find_threads)
+    find = tool_schema(box.functions["find_threads"])
     assert find["parameters"]["required"] == ["name_or_number"]
