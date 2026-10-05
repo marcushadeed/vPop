@@ -1,8 +1,11 @@
 """Tests for the Claude harness with a scripted client. No API call is made."""
 
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
+import anthropic
+import httpx2
 import pytest
 from anthropic.types.beta import BetaMessage
 
@@ -11,10 +14,11 @@ from assistant.claude_harness import (
     ClaudeConversation,
     Spend,
     claude_tools,
+    make_client,
     response_cost,
     usage_line,
 )
-from assistant.harness import QUERY_FUNCTIONS
+from assistant.harness import QUERY_FUNCTIONS, AuthError
 from config import ClaudeConfig
 
 
@@ -200,3 +204,81 @@ def test_verbose_ask_prints_question_and_session_cost(
         f"  usage: 10,000 {tokens} · ~$0.03 (session ~$0.03)",
         f"  usage: 20,000 {tokens} · ~$0.05 (session ~$0.08)",
     ]
+
+
+@pytest.fixture
+def no_credentials(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """
+    An environment with no Anthropic credentials: no env vars, no CLI profile, an empty
+    config directory. Returns where `anthropic.env` goes.
+    """
+    for var in (
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_AUTH_TOKEN",
+        "ANTHROPIC_PROFILE",
+        "ANTHROPIC_CONFIG_DIR",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    return tmp_path / "xdg" / "vpop" / "anthropic.env"
+
+
+def test_missing_credentials_say_where_to_put_a_key(no_credentials: Path) -> None:
+    with pytest.raises(AuthError) as error:
+        make_client()
+    assert str(no_credentials) in str(error.value)
+    assert "ant auth login" in str(error.value)
+
+
+def test_broken_cli_profile_is_an_auth_error(
+    monkeypatch: pytest.MonkeyPatch, no_credentials: Path
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_PROFILE", "missing")
+    with pytest.raises(AuthError, match="ant auth login"):
+        make_client()
+
+
+def test_key_file_beside_config_is_used(no_credentials: Path) -> None:
+    no_credentials.parent.mkdir(parents=True)
+    no_credentials.write_text("# my key\nANTHROPIC_API_KEY='sk-ant-test'\n")
+    client, source = make_client()
+    assert client.api_key == "sk-ant-test"
+    assert source == f"ANTHROPIC_API_KEY from {no_credentials}"
+
+
+def test_exported_key_wins_over_key_file(
+    monkeypatch: pytest.MonkeyPatch, no_credentials: Path
+) -> None:
+    no_credentials.parent.mkdir(parents=True)
+    no_credentials.write_text("ANTHROPIC_API_KEY=sk-ant-file\n")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-env")
+    client, source = make_client()
+    assert client.api_key == "sk-ant-env"
+    assert source == "ANTHROPIC_API_KEY from the environment"
+
+
+class RejectingMessages:
+    def __init__(self, status: int, error: type[anthropic.APIStatusError]) -> None:
+        self.status = status
+        self.error = error
+
+    def create(self, **_: Any) -> BetaMessage:
+        request = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+        body = {"type": "error", "error": {"message": "API key is invalid."}}
+        response = httpx2.Response(self.status, json=body, request=request)
+        raise self.error("rejected", response=response, body=body)
+
+
+@pytest.mark.parametrize(
+    ("status", "error"),
+    [(401, anthropic.AuthenticationError), (403, anthropic.PermissionDeniedError)],
+)
+def test_rejected_credentials_raise_auth_error(
+    status: int, error: type[anthropic.APIStatusError]
+) -> None:
+    client = ScriptedClient([])
+    client.messages = RejectingMessages(status, error)  # type: ignore[assignment]
+    conversation = ClaudeConversation(client=client, verbose=False)  # type: ignore[arg-type]
+    with pytest.raises(AuthError, match=f"\\({status}\\): API key is invalid"):
+        conversation.ask("hi")

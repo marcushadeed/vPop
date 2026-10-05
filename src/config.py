@@ -131,6 +131,11 @@ def config_path() -> Path:
     return next((path for path in paths if path.exists()), paths[0])
 
 
+def config_dir() -> Path:
+    """The directory holding the config file, and the secrets kept beside it."""
+    return config_path().parent
+
+
 def build_section(cls: type, name: str, values: Any) -> Any:
     """Make a section from its table, rejecting unknown keys and wrongly typed values."""
     if not isinstance(values, dict):

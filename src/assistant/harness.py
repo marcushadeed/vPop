@@ -251,6 +251,10 @@ class Conversation:
         )
 
 
+class AuthError(RuntimeError):
+    """The model's API has no credentials, or rejected them. The message says what to do."""
+
+
 def new_conversation(
     config: Config | None = None,
 ) -> "Conversation | ClaudeConversation":

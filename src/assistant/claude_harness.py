@@ -22,6 +22,7 @@ from anthropic.types.beta import (
 from assistant.harness import (
     SYSTEM_PROMPT,
     TOOLS,
+    AuthError,
     ToolCall,
     Trace,
     call_tool,
@@ -29,7 +30,10 @@ from assistant.harness import (
     today_label,
 )
 from config import AssistantConfig, ClaudeConfig
-from paths import ANTHROPIC_ENV
+from paths import anthropic_env_path
+
+# Where to create an API key.
+API_KEYS_URL = "https://platform.claude.com/settings/keys"
 
 # On a safety refusal, the API re-runs the request on a fallback model it picks.
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
@@ -112,21 +116,90 @@ def usage_line(question: Spend, session: Spend) -> str:
     return f"{tokens} · ~${question.cost:.2f}{session_part}"
 
 
-def load_anthropic_env() -> None:
+def load_anthropic_env() -> set[str]:
     """
-    Load KEY=VALUE pairs from `secrets/anthropic.env`, if present (existing vars win).
+    Load KEY=VALUE pairs from `anthropic.env` beside the config file, if present (existing
+    vars win). Returns the names it set.
 
-    The file is optional: the SDK also finds an exported `ANTHROPIC_API_KEY` or an
-    `ant auth login` profile.
+    The file is optional: the SDK also finds an exported `ANTHROPIC_API_KEY` or a profile
+    from the Anthropic CLI's `ant auth login`.
     """
-    if not ANTHROPIC_ENV.exists():
-        return
-    for raw_line in ANTHROPIC_ENV.read_text().splitlines():
+    path = anthropic_env_path()
+    if not path.exists():
+        return set()
+    loaded: set[str] = set()
+    for raw_line in path.read_text().splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, _, value = line.partition("=")
-        os.environ.setdefault(key.strip(), value.strip().strip("'\""))
+        key = key.strip()
+        if key not in os.environ:
+            os.environ[key] = value.strip().strip("'\"")
+            loaded.add(key)
+    return loaded
+
+
+def credential_source(client: anthropic.Anthropic, from_file: set[str]) -> str | None:
+    """
+    Which credential the client will send, as the SDK resolved it, or None if it found
+    none. `from_file` is what `load_anthropic_env` set.
+    """
+    for var, value in (
+        ("ANTHROPIC_API_KEY", client.api_key),
+        ("ANTHROPIC_AUTH_TOKEN", client.auth_token),
+    ):
+        if value is not None:
+            where = anthropic_env_path() if var in from_file else "the environment"
+            return f"{var} from {where}"
+    if client.credentials is not None:
+        return "the Anthropic CLI profile (`ant auth status` shows which)"
+    return None
+
+
+def missing_credentials_message() -> str:
+    """What to do when no credentials were found."""
+    return (
+        "no Anthropic credentials found, and the config has local_model = false.\n"
+        "Give vpop an API key (create one at "
+        f"{API_KEYS_URL}) in one of these ways:\n"
+        f"  - put ANTHROPIC_API_KEY=sk-ant-... in {anthropic_env_path()}\n"
+        "  - export ANTHROPIC_API_KEY\n"
+        "  - log in with the Anthropic CLI: ant auth login\n"
+        "Or set local_model = true to answer with a local Ollama model instead."
+    )
+
+
+def rejected_credentials_message(source: str, error: anthropic.APIStatusError) -> str:
+    """What to do when the API refused the credentials it was sent."""
+    if source.startswith("the Anthropic CLI profile"):
+        fix = "Log in again with: ant auth login"
+    else:
+        fix = f"Check the key at {API_KEYS_URL} and replace it."
+    # The body's own message ("API key is invalid.") reads better than the SDK's repr.
+    body = error.body if isinstance(error.body, dict) else {}
+    detail = body.get("error", {}).get("message") or error.message
+    return f"Anthropic rejected {source} ({error.status_code}): {detail}\n{fix}"
+
+
+def make_client() -> tuple[anthropic.Anthropic, str]:
+    """
+    A client with the first credentials the SDK finds, and where they came from. Raises
+    `AuthError` if it finds none, rather than failing on the first request.
+    """
+    from_file = load_anthropic_env()
+    try:
+        client = anthropic.Anthropic()
+    except anthropic.CredentialsError as exc:
+        # A profile picked by ANTHROPIC_PROFILE or ANTHROPIC_CONFIG_DIR that won't load.
+        raise AuthError(
+            f"couldn't load the Anthropic CLI profile: {exc}\n"
+            "Log in again with: ant auth login"
+        ) from exc
+    source = credential_source(client, from_file)
+    if source is None:
+        raise AuthError(missing_credentials_message())
+    return client, source
 
 
 def claude_tools() -> list[BetaToolParam]:
@@ -169,8 +242,9 @@ class ClaudeConversation:  # pylint: disable=too-many-instance-attributes
     ) -> None:
         """Same `today` and `verbose` as the local `Conversation`."""
         if client is None:
-            load_anthropic_env()
-            client = anthropic.Anthropic()
+            client, self.credential_source = make_client()
+        else:
+            self.credential_source = "the provided client's credentials"
         self.client = client
         self.settings = settings or ClaudeConfig()
         self.max_rounds = max_rounds
@@ -185,19 +259,26 @@ class ClaudeConversation:  # pylint: disable=too-many-instance-attributes
 
     def chat(self) -> BetaMessage:
         """Send the conversation so far and return the model's reply."""
-        response = self.client.beta.messages.create(
-            model=self.settings.model,
-            max_tokens=self.settings.max_tokens,
-            system=SYSTEM_PROMPT,
-            messages=self.messages,
-            tools=self.tools,
-            thinking={"type": "adaptive"},
-            # The config checks effort against the allowed values.
-            output_config=cast(BetaOutputConfigParam, {"effort": self.settings.effort}),
-            cache_control={"type": "ephemeral"},
-            betas=[FALLBACK_BETA],
-            fallbacks="default",
-        )
+        try:
+            response = self.client.beta.messages.create(
+                model=self.settings.model,
+                max_tokens=self.settings.max_tokens,
+                system=SYSTEM_PROMPT,
+                messages=self.messages,
+                tools=self.tools,
+                thinking={"type": "adaptive"},
+                # The config checks effort against the allowed values.
+                output_config=cast(
+                    BetaOutputConfigParam, {"effort": self.settings.effort}
+                ),
+                cache_control={"type": "ephemeral"},
+                betas=[FALLBACK_BETA],
+                fallbacks="default",
+            )
+        except (anthropic.AuthenticationError, anthropic.PermissionDeniedError) as exc:
+            raise AuthError(
+                rejected_credentials_message(self.credential_source, exc)
+            ) from exc
         usage = response.usage
         cache_read = usage.cache_read_input_tokens or 0
         cache_write = usage.cache_creation_input_tokens or 0

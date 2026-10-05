@@ -74,13 +74,16 @@ def main():
 
     # Imports are deferred: `sync` needs the Drive secrets at import time, `ask` doesn't.
     if args.command == "ask":
-        from assistant.harness import ask, repl
+        from assistant.harness import AuthError, ask, repl
 
         config = load_or_exit()
-        if args.question:
-            print(ask(" ".join(args.question), config))
-        else:
-            repl(config)
+        try:
+            if args.question:
+                print(ask(" ".join(args.question), config))
+            else:
+                repl(config)
+        except AuthError as exc:
+            raise SystemExit(f"error: {exc}") from exc
     elif args.command == "config":
         config_command(args)
     elif args.command == "bench":
