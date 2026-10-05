@@ -7,6 +7,7 @@ answer to `benchmarks/results/`, and prints a summary.
 """
 
 import json
+import logging
 import statistics
 import subprocess
 import sys
@@ -22,20 +23,20 @@ from typing import Any
 
 import ollama
 
-from vpop.assistant.harness import Conversation, Settings, parse_think
+from vpop.assistant.ollama_harness import OllamaConversation
 from vpop.assistant.tools import MessageTools
 from vpop.benchmark import fixture
 from vpop.benchmark.cases import CASES, Case
 from vpop.benchmark.grading import grade
+from vpop.config import OllamaConfig
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RESULTS_DIR = REPO_ROOT / "benchmarks" / "results"
 
 
-def config_label(settings: Settings) -> str:
+def config_label(settings: OllamaConfig) -> str:
     """A short name for a model configuration, e.g. `qwen3:8b think=off`."""
-    think = {True: "on", False: "off", None: "default"}[settings.think]
-    return f"{settings.model} think={think}"
+    return f"{settings.model} think={settings.think}"
 
 
 @contextmanager
@@ -45,6 +46,18 @@ def fixture_db() -> Iterator[Path]:
         path = Path(tmp) / "fixture.db"
         fixture.build_fixture_db(path)
         yield path
+
+
+@contextmanager
+def quiet_tool_calls() -> Iterator[None]:
+    """Hide the per-tool-call log lines a conversation prints, for the length of a run."""
+    logger = logging.getLogger("vpop.assistant")
+    previous = logger.level
+    logger.setLevel(logging.WARNING)
+    try:
+        yield
+    finally:
+        logger.setLevel(previous)
 
 
 def git_sha() -> str:
@@ -71,13 +84,13 @@ def git_sha() -> str:
 
 def run_case(
     case: Case,
-    settings: Settings,
+    settings: OllamaConfig,
     tools: MessageTools,
     client: ollama.Client | None = None,
 ) -> dict[str, Any]:
     """Ask one case in a fresh conversation and return its graded record."""
-    conversation = Conversation(
-        tools, client=client, settings=settings, today=fixture.TODAY, verbose=False
+    conversation = OllamaConversation(
+        tools, settings, client=client, today=fixture.TODAY
     )
     answers: list[str] = []
     error = None
@@ -218,7 +231,7 @@ def run(
     """Run the benchmark, write results, print a summary, and return the results file."""
     cases = select_cases(case_ids, tags)
     configs = [
-        Settings(model=model, think=parse_think(think))
+        OllamaConfig(model=model, think=think)  # type: ignore[arg-type]
         for model in models
         for think in (thinks or ["default"])
     ]
@@ -230,7 +243,7 @@ def run(
     stamp = {"git_sha": git_sha(), "today": fixture.TODAY}
     total = len(configs) * len(cases) * repeat
     records: list[dict[str, Any]] = []
-    with fixture_db() as db_file, out_path.open("w") as out:
+    with fixture_db() as db_file, quiet_tool_calls(), out_path.open("w") as out:
         tools = MessageTools(db_file)
         for settings in configs:
             for rep in range(repeat):

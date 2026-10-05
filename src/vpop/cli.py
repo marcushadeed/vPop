@@ -178,23 +178,32 @@ def sync_command(args: argparse.Namespace) -> None:
 
 def ask_command(args: argparse.Namespace) -> None:
     """Answer one question, or start a conversation with none."""
+    # pylint: disable=import-outside-toplevel
     from vpop.assistant.auth import offer_login
-    from vpop.assistant.harness import AuthError, MissingCredentialsError, ask, repl
+    from vpop.assistant.errors import AuthError, MissingCredentialsError, describe_error
+    from vpop.assistant.session import new_conversation, repl
 
     config = load_or_exit()
     for attempt in range(2):
         try:
+            conversation = new_conversation(config)
             if args.question:
-                print(ask(" ".join(args.question), config))
+                print(conversation.ask(" ".join(args.question)))
             else:
-                repl(config)
+                repl(conversation)
             return
         except MissingCredentialsError as exc:
             print(f"error: {exc}", file=sys.stderr)
             if attempt or not offer_login(config):
                 raise SystemExit(1) from exc
+            config = load_or_exit()
         except AuthError as exc:
             raise SystemExit(f"error: {exc}") from exc
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            message = describe_error(exc)
+            if message is None:
+                raise
+            raise SystemExit(f"error: {message}") from exc
 
 
 def auth_command(args: argparse.Namespace) -> None:

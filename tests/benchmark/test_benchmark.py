@@ -6,15 +6,15 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any
 
-import ollama
 import pytest
+from helpers import ScriptedOllama, text_reply, tool_reply
 
-from vpop.assistant.harness import Conversation, Settings, ToolCall, Trace
+from vpop.assistant.conversation import ToolCall, Trace
 from vpop.assistant.tools import MessageTools
 from vpop.benchmark import cases, fixture, run
 from vpop.benchmark.cases import CASES, Case
 from vpop.benchmark.grading import grade, numbers_in, phone_numbers_in
-from vpop.config import Config
+from vpop.config import OllamaConfig
 
 
 @pytest.fixture(scope="module")
@@ -191,63 +191,16 @@ def test_grade_number_and_trace_checks() -> None:
     ]
 
 
-class ScriptedClient:
-    """Stands in for `ollama.Client`, replaying canned replies and recording requests."""
-
-    def __init__(self, replies: list[ollama.Message]) -> None:
-        self.replies = replies
-        self.requests: list[dict[str, Any]] = []
-
-    def chat(self, **kwargs: Any) -> ollama.ChatResponse:
-        self.requests.append(kwargs)
-        return ollama.ChatResponse(
-            message=self.replies.pop(0),
-            prompt_eval_count=100,
-            eval_count=10,
-            total_duration=5,
-        )
-
-
-def tool_reply(name: str, **arguments: Any) -> ollama.Message:
-    call = ollama.Message.ToolCall(
-        function=ollama.Message.ToolCall.Function(name=name, arguments=arguments)
-    )
-    return ollama.Message(role="assistant", tool_calls=[call])
-
-
-def text_reply(content: str) -> ollama.Message:
-    return ollama.Message(role="assistant", content=content)
-
-
-def test_conversation_uses_settings_and_today(tools: MessageTools) -> None:
-    client = ScriptedClient([text_reply("hi")])
-    settings = Settings(model="m:1b", num_ctx=2048, think=False)
-    conversation = Conversation(
-        tools, client, settings, today="2026-09-15", verbose=False
-    )  # type: ignore[arg-type]
-    conversation.ask("hello")
-    request = client.requests[0]
-    assert request["model"] == "m:1b"
-    assert request["think"] is False
-    assert request["options"]["num_ctx"] == 2048
-    # The request holds the live history, so the question is at index 1, not the end.
-    assert "(Today is Tuesday 2026-09-15.)" in request["messages"][1]["content"]
-
-
-def test_settings_default_to_config_defaults() -> None:
-    assert Settings() == Settings.from_config(Config())
-
-
 def test_run_case_records_trace_and_grades(tools: MessageTools) -> None:
     case = next(c for c in CASES if c.id == "sam-dog-name")
-    client = ScriptedClient(
+    client = ScriptedOllama(
         [
             tool_reply("find_threads", name_or_number="Sam"),
             tool_reply("search_messages", text="puppy", direction="bogus"),
             text_reply("Sam's dog is named Biscuit."),
         ]
     )
-    record = run.run_case(case, Settings(model="m"), tools, client)  # type: ignore[arg-type]
+    record = run.run_case(case, OllamaConfig(model="m"), tools, client)
     assert record["passed"]
     assert record["rounds"] == 3
     assert record["prompt_tokens"] == 300 and record["output_tokens"] == 30
@@ -260,22 +213,22 @@ def test_run_case_records_trace_and_grades(tools: MessageTools) -> None:
 
 def test_run_case_hits_round_limit(tools: MessageTools) -> None:
     case = make_case(must_include=("x",))
-    client = ScriptedClient([tool_reply("find_threads", name_or_number="Sam")] * 2)
-    record = run.run_case(case, Settings(model="m", max_rounds=2), tools, client)  # type: ignore[arg-type]
+    client = ScriptedOllama([tool_reply("find_threads", name_or_number="Sam")] * 12)
+    record = run.run_case(case, OllamaConfig(model="m"), tools, client)
     assert record["hit_round_limit"]
     assert not record["passed"]
 
 
 def test_run_case_multi_turn_grades_last_answer(tools: MessageTools) -> None:
     case = next(c for c in CASES if c.id == "chris-restaurant-followup")
-    client = ScriptedClient(
+    client = ScriptedOllama(
         [
             tool_reply("search_messages", text="restaurant"),
             text_reply("Casa Verde."),
             text_reply("Adams Morgan."),
         ]
     )
-    record = run.run_case(case, Settings(model="m"), tools, client)  # type: ignore[arg-type]
+    record = run.run_case(case, OllamaConfig(model="m"), tools, client)
     assert record["answers"] == ["Casa Verde.", "Adams Morgan."]
     assert record["passed"]
 

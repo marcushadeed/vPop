@@ -3,7 +3,7 @@
 import re
 from dataclasses import dataclass
 
-from vpop.assistant.harness import Trace
+from vpop.assistant.conversation import Trace
 from vpop.benchmark.cases import Case
 
 

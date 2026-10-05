@@ -21,10 +21,11 @@ import anthropic
 from vpop.assistant.claude_harness import (
     API_KEYS_URL,
     credential_source,
-    load_anthropic_env,
+    file_settings,
     make_client,
+    new_client,
 )
-from vpop.assistant.harness import AuthError
+from vpop.assistant.errors import AuthError, api_error_detail
 from vpop.config import Config, set_setting
 from vpop.fsutil import read_env_file, write_private
 from vpop.paths import anthropic_env_path, config_path
@@ -42,7 +43,7 @@ def save_key(path: Path, key: str) -> None:
     """Set `ANTHROPIC_API_KEY` in the env file, keeping its other lines."""
     lines = path.read_text().splitlines() if path.exists() else []
     kept = [line for line in lines if line.partition("=")[0].strip() != KEY_VAR]
-    write_private(path, "\n".join(kept + [f"{KEY_VAR}={key}"]) + "\n")
+    write_private(path, "\n".join([*kept, f"{KEY_VAR}={key}"]) + "\n")
 
 
 def remove_key(path: Path) -> bool:
@@ -77,8 +78,7 @@ def check_client(client: anthropic.Anthropic) -> str | None:
     try:
         client.models.list(limit=1)
     except (anthropic.AuthenticationError, anthropic.PermissionDeniedError) as exc:
-        body = exc.body if isinstance(exc.body, dict) else {}
-        return body.get("error", {}).get("message") or exc.message
+        return api_error_detail(exc)
     except anthropic.APIConnectionError as exc:
         return f"couldn't reach the API ({exc.message})"
     return None
@@ -209,9 +209,8 @@ def logout() -> None:
     if exported:
         print(f"{exported} is still set in your shell")
         return
-    load_anthropic_env()
     try:
-        profile = credential_source(anthropic.Anthropic(), set())
+        profile = credential_source(new_client(file_settings()), set())
     except anthropic.CredentialsError:
         profile = None
     if profile:

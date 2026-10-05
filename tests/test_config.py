@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 
-from vpop.assistant.harness import Conversation, Settings, new_conversation
 from vpop.config import (
     AndroidMessagesConfig,
     ClaudeConfig,
@@ -153,33 +152,6 @@ def test_no_config_anywhere_creates_one_in_first_location(
     assert load_config() == Config()
     assert xdg.exists()
     assert not home.exists()
-
-
-def test_settings_from_config() -> None:
-    config = parse_config(
-        "[assistant]\nmax_rounds = 3\n[ollama]\nmodel = 'm:1b'\nthink = 'off'\n"
-    )
-    assert Settings.from_config(config) == Settings(
-        model="m:1b", num_ctx=Config().ollama.num_ctx, think=False, max_rounds=3
-    )
-
-
-def test_local_model_picks_ollama_conversation() -> None:
-    conversation = new_conversation(Config())
-    assert isinstance(conversation, Conversation)
-
-
-def test_remote_model_picks_claude_conversation(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from vpop.assistant.claude_harness import ClaudeConversation
-
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-    config = parse_config("[assistant]\nlocal_model = false\nmax_rounds = 5\n")
-    conversation = new_conversation(config)
-    assert isinstance(conversation, ClaudeConversation)
-    assert conversation.max_rounds == 5
-    assert conversation.settings == ClaudeConfig()
 
 
 def test_set_setting_replaces_value_keeping_comments(tmp_path: Path) -> None:

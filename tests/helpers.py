@@ -6,6 +6,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import ollama
+
 from vpop import db
 from vpop.sources.android_messages.model import Direction, Message
 from vpop.sources.android_messages.store import insert_messages
@@ -44,3 +46,37 @@ def build_db(path: Path, messages: Iterable[Message]) -> Path:
     with closing(db.connect(path)) as conn:
         insert_messages(conn, messages)
     return path
+
+
+class ScriptedOllama:
+    """Stands in for `ollama.Client`, replaying canned replies and recording requests."""
+
+    def __init__(self, replies: list[Any], prompt_tokens: int = 100) -> None:
+        self.replies = replies
+        self.prompt_tokens = prompt_tokens
+        self.requests: list[dict[str, Any]] = []
+
+    def chat(self, **kwargs: Any) -> ollama.ChatResponse:
+        self.requests.append(kwargs | {"messages": list(kwargs["messages"])})
+        reply = self.replies.pop(0)
+        if isinstance(reply, BaseException):
+            raise reply
+        return ollama.ChatResponse(
+            message=reply,
+            prompt_eval_count=self.prompt_tokens,
+            eval_count=10,
+            total_duration=5,
+        )
+
+
+def tool_reply(name: str, **arguments: Any) -> ollama.Message:
+    """An Ollama turn calling one tool."""
+    call = ollama.Message.ToolCall(
+        function=ollama.Message.ToolCall.Function(name=name, arguments=arguments)
+    )
+    return ollama.Message(role="assistant", tool_calls=[call])
+
+
+def text_reply(content: str) -> ollama.Message:
+    """An Ollama turn answering in text."""
+    return ollama.Message(role="assistant", content=content)

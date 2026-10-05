@@ -2,7 +2,7 @@
 
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
 import anthropic
 import httpx2
@@ -14,10 +14,11 @@ from vpop.assistant.claude_harness import (
     Spend,
     claude_tools,
     make_client,
+    price_for,
     response_cost,
     usage_line,
 )
-from vpop.assistant.harness import AuthError
+from vpop.assistant.errors import AuthError
 from vpop.assistant.tools import TOOL_NAMES, MessageTools
 from vpop.benchmark import run
 from vpop.config import ClaudeConfig
@@ -34,6 +35,7 @@ def message(
     stop_reason: str,
     model: str = "claude-sonnet-5-5",
     usage: dict[str, int] | None = None,
+    **extra: Any,
 ) -> BetaMessage:
     return BetaMessage.model_validate(
         {
@@ -45,6 +47,7 @@ def message(
             "stop_reason": stop_reason,
             "usage": {"input_tokens": 100, "output_tokens": 10} | (usage or {}),
         }
+        | extra
     )
 
 
@@ -57,34 +60,49 @@ def text(content: str, stop_reason: str = "end_turn", **usage: int) -> BetaMessa
     return message([{"type": "text", "text": content}], stop_reason, usage=usage)
 
 
+class ScriptedStream:
+    def __init__(self, reply: BetaMessage | BaseException) -> None:
+        self.reply = reply
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        return None
+
+    def get_final_message(self) -> BetaMessage:
+        if isinstance(self.reply, BaseException):
+            raise self.reply
+        return self.reply
+
+
 class ScriptedMessages:
-    def __init__(self, replies: list[BetaMessage]) -> None:
+    def __init__(self, replies: list[BetaMessage | BaseException]) -> None:
         self.replies = replies
         self.requests: list[dict[str, Any]] = []
 
-    def create(self, **kwargs: Any) -> BetaMessage:
+    def stream(self, **kwargs: Any) -> ScriptedStream:
         # Copy the history: the conversation keeps appending to the same list.
         self.requests.append(kwargs | {"messages": list(kwargs["messages"])})
-        return self.replies.pop(0)
+        return ScriptedStream(self.replies.pop(0))
 
 
 class ScriptedClient:
     """Stands in for `anthropic.Anthropic`, replaying canned replies."""
 
-    def __init__(self, replies: list[BetaMessage]) -> None:
+    def __init__(self, replies: list[BetaMessage | BaseException]) -> None:
         self.messages = ScriptedMessages(replies)
         self.beta = self
 
 
 def converse(
-    tools: MessageTools, replies: list[BetaMessage], **kwargs: Any
+    tools: MessageTools, replies: list[BetaMessage | BaseException], **kwargs: Any
 ) -> tuple[ClaudeConversation, ScriptedMessages]:
     client = ScriptedClient(replies)
     conversation = ClaudeConversation(
         tools,
         client=client,  # type: ignore[arg-type]
         today="2026-09-15",
-        verbose=False,
         **kwargs,
     )
     return conversation, client.messages
@@ -109,6 +127,8 @@ def test_tool_loop_runs_tools_and_returns_answer(tools: MessageTools) -> None:
     first = api.requests[0]
     assert first["model"] == "claude-sonnet-5-5"
     assert first["output_config"] == {"effort": "low"}
+    assert first["fallbacks"] == "default"
+    assert first["thinking"] == {"type": "adaptive"}
     assert "(Today is Tuesday 2026-09-15.)" in first["messages"][0]["content"]
 
     tool_results = api.requests[1]["messages"][-1]["content"]
@@ -139,11 +159,27 @@ def test_round_limit(tools: MessageTools) -> None:
 
 
 def test_refusal_and_max_tokens(tools: MessageTools) -> None:
-    conversation, _ = converse(
-        tools, [message([], "refusal"), text("partial", "max_tokens")]
+    refusal = message(
+        [], "refusal", stop_details={"type": "refusal", "category": "cyber"}
     )
-    assert "declined" in conversation.ask("q")
+    conversation, _ = converse(tools, [refusal, text("partial", "max_tokens")])
+    assert conversation.ask("q") == (
+        "(Claude declined to answer this question; category: cyber)"
+    )
     assert "max_tokens" in conversation.ask("q2")
+
+
+def test_tool_call_cut_off_by_max_tokens_is_not_run(tools: MessageTools) -> None:
+    cut = message(
+        [
+            {"type": "text", "text": "Let me look"},
+            {"type": "tool_use", "id": "t", "name": "find_threads", "input": {}},
+        ],
+        "max_tokens",
+    )
+    conversation, _ = converse(tools, [cut])
+    assert conversation.ask("q").endswith("(Cut off at the max_tokens limit.)")
+    assert conversation.trace.tool_calls == []
 
 
 def test_cost_counts_every_kind_of_token() -> None:
@@ -169,6 +205,11 @@ def test_fallback_model_is_priced_at_its_own_rates() -> None:
     assert response_cost(opus) == pytest.approx(4 + 10 * 20 / 1_000_000)
 
 
+def test_dated_snapshot_ids_are_priced() -> None:
+    assert price_for("claude-haiku-4-5-20251001") == price_for("claude-haiku-4-5")
+    assert price_for("claude-opus-5") != price_for("claude-opus-5-5")
+
+
 def test_unknown_model_has_no_price() -> None:
     reply = message([], "end_turn", model="claude-someday-9")
     assert response_cost(reply) is None
@@ -191,7 +232,7 @@ def test_trace_splits_cached_input(tools: MessageTools) -> None:
     )
 
 
-def test_verbose_ask_logs_question_and_session_cost(
+def test_ask_logs_question_and_session_cost(
     tools: MessageTools, caplog: pytest.LogCaptureFixture
 ) -> None:
     caplog.set_level("INFO")
@@ -200,7 +241,6 @@ def test_verbose_ask_logs_question_and_session_cost(
         text("b", input_tokens=20_000, output_tokens=1_000),
     ]
     conversation, _ = converse(tools, replies)
-    conversation.verbose = True
     conversation.ask("q1")
     conversation.ask("q2")
     lines = [r.getMessage() for r in caplog.records if "usage:" in r.getMessage()]
@@ -210,6 +250,36 @@ def test_verbose_ask_logs_question_and_session_cost(
         f"  usage: 10,000 {tokens} · ~$0.03 (session ~$0.03)",
         f"  usage: 20,000 {tokens} · ~$0.05 (session ~$0.08)",
     ]
+
+
+def test_unpriced_model_is_flagged_on_every_question(
+    tools: MessageTools, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level("INFO")
+    unknown = "claude-someday-9"
+    replies = [
+        message([{"type": "text", "text": t}], "end_turn", model=unknown) for t in "ab"
+    ]
+    conversation, _ = converse(tools, replies)
+    conversation.ask("q1")
+    conversation.ask("q2")
+    lines = [r.getMessage() for r in caplog.records if "usage:" in r.getMessage()]
+    assert all(line.endswith(f"(no price for {unknown})") for line in lines)
+    assert len(lines) == 2
+
+
+def test_failed_question_is_rolled_back(tools: MessageTools) -> None:
+    error = anthropic.APIConnectionError(
+        request=httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+    )
+    conversation, api = converse(
+        tools, [tool_use("find_threads", name_or_number="Mom"), error, text("ok")]
+    )
+    with pytest.raises(anthropic.APIConnectionError):
+        conversation.ask("q1")
+    assert conversation.messages == []
+    assert conversation.ask("q2") == "ok"
+    assert len(api.requests[-1]["messages"]) == 1
 
 
 def test_missing_credentials_say_where_to_put_a_key(no_credentials: Path) -> None:
@@ -251,7 +321,7 @@ class RejectingMessages:
         self.status = status
         self.error = error
 
-    def create(self, **_: Any) -> BetaMessage:
+    def stream(self, **_: Any) -> BetaMessage:
         request = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
         body = {"type": "error", "error": {"message": "API key is invalid."}}
         response = httpx2.Response(self.status, json=body, request=request)
@@ -267,6 +337,6 @@ def test_rejected_credentials_raise_auth_error(
 ) -> None:
     client = ScriptedClient([])
     client.messages = RejectingMessages(status, error)  # type: ignore[assignment]
-    conversation = ClaudeConversation(tools, client=client, verbose=False)  # type: ignore[arg-type]
+    conversation = ClaudeConversation(tools, client=client)  # type: ignore[arg-type]
     with pytest.raises(AuthError, match=f"\\({status}\\): API key is invalid"):
         conversation.ask("hi")

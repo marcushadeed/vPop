@@ -23,9 +23,7 @@ ANTHROPIC_VARS = (
 def isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[None]:
     """Point HOME and the XDG directories at temp dirs; clear credentials; pin the time zone."""
     for var in ANTHROPIC_VARS:
-        # Set first so teardown also clears what `load_anthropic_env` writes to os.environ.
-        monkeypatch.setenv(var, "")
-        monkeypatch.delenv(var)
+        monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
