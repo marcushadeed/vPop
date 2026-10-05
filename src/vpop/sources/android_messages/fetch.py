@@ -2,7 +2,7 @@
 
 import logging
 
-from vpop.data_paths import android_messages_raw_dir
+from vpop.paths import android_messages_raw_dir
 from vpop.sources.data_locations import MESSAGES_BACKUP_FOLDER_ID
 from vpop.sources.google_drive import (
     download_file_by_name,

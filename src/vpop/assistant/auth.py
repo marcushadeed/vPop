@@ -25,8 +25,8 @@ from vpop.assistant.claude_harness import (
     make_client,
 )
 from vpop.assistant.harness import AuthError
-from vpop.config import Config, config_path, set_setting
-from vpop.paths import anthropic_env_path
+from vpop.config import Config, set_setting
+from vpop.paths import anthropic_env_path, config_path
 
 KEY_VAR = "ANTHROPIC_API_KEY"
 EXPORTED_VARS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")

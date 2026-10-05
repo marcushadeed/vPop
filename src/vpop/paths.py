@@ -1,12 +1,43 @@
-"""Project and secrets paths."""
+"""
+Every file location vpop uses, in one place.
 
-from __future__ import annotations
+Settings and secrets live in the config directory (`$XDG_CONFIG_HOME/vpop`, else
+`~/.config/vpop`); downloaded backups and the database live in the data directory
+(`$XDG_DATA_HOME/vpop`, else `~/.local/share/vpop`). These functions only compute paths:
+whoever writes a file creates its directory.
+"""
 
+import os
 from pathlib import Path
 
-from vpop.config import config_dir
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+def xdg_base(var: str, fallback: Path) -> Path:
+    """An XDG base directory: the variable when it's set to an absolute path, else `fallback`."""
+    value = os.environ.get(var)
+    return Path(value) if value and Path(value).is_absolute() else fallback
+
+
+def config_paths() -> list[Path]:
+    """
+    Where the config file is looked for, in order: `$XDG_CONFIG_HOME/vpop/config.toml`
+    (when the variable is set), then `~/.config/vpop/config.toml`.
+    """
+    home = Path.home() / ".config"
+    bases = [xdg_base("XDG_CONFIG_HOME", home)]
+    if bases[0] != home:
+        bases.append(home)
+    return [base / "vpop" / "config.toml" for base in bases]
+
+
+def config_path() -> Path:
+    """The first config file that exists, else where a new one goes (the first location)."""
+    paths = config_paths()
+    return next((path for path in paths if path.exists()), paths[0])
+
+
+def config_dir() -> Path:
+    """The directory holding the config file, and the secrets kept beside it."""
+    return config_path().parent
 
 
 def oauth_credentials_path() -> Path:
@@ -19,11 +50,26 @@ def oauth_token_path() -> Path:
     return config_dir() / "oauth-token.json"
 
 
+def anthropic_env_path() -> Path:
+    """Optional `anthropic.env` beside the config file, holding `ANTHROPIC_API_KEY=...`."""
+    return config_dir() / "anthropic.env"
+
+
 def remote_data_locations_env() -> Path:
     """`remote-data-locations.env` beside the config, holding Drive folder IDs."""
     return config_dir() / "remote-data-locations.env"
 
 
-def anthropic_env_path() -> Path:
-    """Optional `anthropic.env` beside the config file, holding `ANTHROPIC_API_KEY=...`."""
-    return config_dir() / "anthropic.env"
+def data_dir() -> Path:
+    """Persistent user-data root (`$XDG_DATA_HOME/vpop`, else `~/.local/share/vpop`)."""
+    return xdg_base("XDG_DATA_HOME", Path.home() / ".local" / "share") / "vpop"
+
+
+def db_path() -> Path:
+    """The SQLite database every source is imported into."""
+    return data_dir() / "vpop.db"
+
+
+def android_messages_raw_dir() -> Path:
+    """Downloaded Android Messages XML backups, kept as the source of truth for the DB."""
+    return data_dir() / "raw" / "android-messages"

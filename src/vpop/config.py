@@ -10,11 +10,12 @@ exists yet.
 from __future__ import annotations
 
 import logging
-import os
 import tomllib
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, get_type_hints
+
+from vpop.paths import config_path
 
 log = logging.getLogger(__name__)
 
@@ -113,29 +114,6 @@ class Config:
 
 class ConfigError(ValueError):
     """The config file can't be parsed or has a bad setting."""
-
-
-def config_paths() -> list[Path]:
-    """
-    Where the config file is looked for, in order: `$XDG_CONFIG_HOME/vpop/config.toml`
-    (when the variable is set), then `~/.config/vpop/config.toml`.
-    """
-    bases = [Path.home() / ".config"]
-    xdg = os.environ.get("XDG_CONFIG_HOME")
-    if xdg and Path(xdg) != bases[0]:
-        bases.insert(0, Path(xdg))
-    return [base / "vpop" / "config.toml" for base in bases]
-
-
-def config_path() -> Path:
-    """The first config file that exists, else where a new one goes (the first location)."""
-    paths = config_paths()
-    return next((path for path in paths if path.exists()), paths[0])
-
-
-def config_dir() -> Path:
-    """The directory holding the config file, and the secrets kept beside it."""
-    return config_path().parent
 
 
 def build_section(cls: type, name: str, values: Any) -> Any:

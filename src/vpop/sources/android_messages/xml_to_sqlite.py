@@ -15,7 +15,7 @@ from typing import NamedTuple
 
 from lxml.etree import _Element, iterparse
 
-from vpop.data_paths import db_path
+from vpop.paths import db_path
 
 
 class Direction(Enum):
@@ -255,7 +255,9 @@ def add_messages_to_sqlite(messages: Iterable[Message]):
     When a message is already stored, an MMS copy overwrites the thread and sender of an SMS
     copy, so a group message ends up in its group thread whichever copy is imported first.
     """
-    with closing(sqlite3.connect(str(db_path()))) as conn:
+    path = db_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with closing(sqlite3.connect(str(path))) as conn:
         cursor = conn.cursor()
         cursor.execute(
             "CREATE TABLE IF NOT EXISTS messages "

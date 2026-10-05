@@ -9,14 +9,13 @@ from vpop.config import (
     ClaudeConfig,
     Config,
     ConfigError,
-    config_path,
-    config_paths,
     load_config,
     parse_config,
     render_config,
     set_setting,
     write_default_config,
 )
+from vpop.paths import config_path, config_paths, data_dir
 
 
 def test_missing_file_is_created_with_defaults(tmp_path: Path) -> None:
@@ -112,6 +111,15 @@ def test_config_paths_without_xdg(
 ) -> None:
     monkeypatch.delenv("XDG_CONFIG_HOME")
     assert config_paths() == [homes[1]]
+
+
+def test_relative_xdg_paths_are_ignored(
+    monkeypatch: pytest.MonkeyPatch, homes: tuple[Path, Path], tmp_path: Path
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", "relative/config")
+    monkeypatch.setenv("XDG_DATA_HOME", "relative/data")
+    assert config_paths() == [homes[1]]
+    assert data_dir() == tmp_path / "home" / ".local" / "share" / "vpop"
 
 
 def test_existing_home_config_is_used(homes: tuple[Path, Path]) -> None:

@@ -8,11 +8,11 @@ from pathlib import Path
 from vpop.config import (
     Config,
     ConfigError,
-    config_path,
     load_config,
     render_config,
     write_default_config,
 )
+from vpop.paths import config_path
 
 
 class Formatter(logging.Formatter):

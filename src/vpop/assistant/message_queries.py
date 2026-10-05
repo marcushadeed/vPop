@@ -10,7 +10,7 @@ import re
 import sqlite3
 from contextlib import closing
 
-from vpop.data_paths import db_path
+from vpop.paths import db_path
 from vpop.sources.android_messages.xml_to_sqlite import (
     Direction,
     normalize_address,

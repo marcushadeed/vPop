@@ -14,7 +14,7 @@ from vpop.benchmark import cases, fixture, run
 from vpop.benchmark.cases import CASES, Case
 from vpop.benchmark.grading import grade, numbers_in, phone_numbers_in
 from vpop.config import Config
-from vpop.data_paths import db_path
+from vpop.paths import db_path
 
 
 @pytest.fixture(scope="module")

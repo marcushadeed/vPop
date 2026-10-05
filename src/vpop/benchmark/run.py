@@ -27,8 +27,8 @@ from vpop.assistant.harness import Conversation, Settings, parse_think
 from vpop.benchmark import fixture
 from vpop.benchmark.cases import CASES, Case
 from vpop.benchmark.grading import grade
-from vpop.paths import REPO_ROOT
 
+REPO_ROOT = Path(__file__).resolve().parents[3]
 RESULTS_DIR = REPO_ROOT / "benchmarks" / "results"
 
 
