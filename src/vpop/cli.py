@@ -38,9 +38,11 @@ def setup_logging(verbosity: int) -> None:
     root.propagate = False
 
 
-def main():
-    """Entry point for the vpop CLI. With no subcommand, runs `sync`."""
-    parser = argparse.ArgumentParser(prog="vpop")
+def build_parser() -> argparse.ArgumentParser:
+    """The argument parser for every subcommand."""
+    parser = argparse.ArgumentParser(
+        prog="vpop", description="Ask questions about your own messages."
+    )
     noise = parser.add_mutually_exclusive_group()
     noise.add_argument(
         "-v",
@@ -59,43 +61,41 @@ def main():
         dest="verbosity",
         help="only show warnings and errors",
     )
-    subcommands = parser.add_subparsers(dest="command")
-    # `vpop` with no command syncs, with these defaults.
-    parser.set_defaults(rebuild=False, offline=False)
-    sync_parser = subcommands.add_parser(
+    commands = parser.add_subparsers(dest="command", metavar="command")
+
+    sync = commands.add_parser(
         "sync", help="update the database from your message backups"
     )
-    sync_parser.add_argument(
+    sync.add_argument(
         "--rebuild",
         action="store_true",
         help="recreate the database from every downloaded backup",
     )
-    sync_parser.add_argument(
+    sync.add_argument(
         "--offline",
         action="store_true",
         help="don't download new backups, only import what's already downloaded",
     )
-    ask_parser = subcommands.add_parser(
-        "ask", help="ask vPop a question about your data"
-    )
-    ask_parser.add_argument(
+
+    ask = commands.add_parser("ask", help="ask vPop a question about your data")
+    ask.add_argument(
         "question",
         nargs="*",
         help="the question to ask. Leave empty to start a conversation",
     )
-    config_parser = subcommands.add_parser(
-        "config", help="write or show the config file"
-    )
-    config_actions = config_parser.add_subparsers(dest="config_command", required=True)
-    init_parser = config_actions.add_parser("init", help="write a default config file")
-    init_parser.add_argument(
+
+    config = commands.add_parser("config", help="write or show the config file")
+    config_actions = config.add_subparsers(dest="config_command", required=True)
+    init = config_actions.add_parser("init", help="write a default config file")
+    init.add_argument(
         "--force", action="store_true", help="overwrite an existing config file"
     )
     config_actions.add_parser("show", help="print the settings in effect")
-    auth_parser = subcommands.add_parser(
+
+    auth = commands.add_parser(
         "auth", help="set up the Anthropic credentials Claude answers with"
     )
-    auth_actions = auth_parser.add_subparsers(dest="auth_command", required=True)
+    auth_actions = auth.add_subparsers(dest="auth_command", required=True)
     auth_actions.add_parser(
         "login", help="save an API key (or log in with the Anthropic CLI)"
     )
@@ -103,72 +103,89 @@ def main():
         "status", help="show which credentials are used and check they work"
     )
     auth_actions.add_parser("logout", help="remove the saved API key")
-    bench_parser = subcommands.add_parser(
+
+    bench = commands.add_parser(
         "bench", help="benchmark models on fixed questions over a synthetic database"
     )
-    bench_parser.add_argument(
+    bench.add_argument(
         "--provider",
         choices=["ollama", "claude"],
         default="ollama",
         help="which kind of model to benchmark (default: ollama)",
     )
-    bench_parser.add_argument(
+    bench.add_argument(
         "--model",
         action="append",
         default=[],
         help="model to run (repeatable; defaults to the config's model for the provider)",
     )
-    bench_parser.add_argument(
+    bench.add_argument(
         "--think",
         action="append",
         default=[],
         choices=THINK_CHOICES,
         help="Ollama thinking setting (repeatable)",
     )
-    bench_parser.add_argument(
+    bench.add_argument(
         "--effort",
         action="append",
         default=[],
         choices=EFFORT_CHOICES,
         help="Claude effort level (repeatable)",
     )
-    bench_parser.add_argument(
+    bench.add_argument(
         "--case", action="append", default=[], help="only this case id (repeatable)"
     )
-    bench_parser.add_argument(
+    bench.add_argument(
         "--tag",
         action="append",
         default=[],
         help="only cases with this tag (repeatable)",
     )
-    bench_parser.add_argument(
-        "--repeat", type=int, default=1, help="times to run each case"
+    bench.add_argument(
+        "--repeat", type=positive_int, default=1, help="times to run each case"
     )
-    bench_parser.add_argument("--out", type=Path, help="directory for the results file")
-    bench_parser.add_argument(
+    bench.add_argument("--out", type=Path, help="directory for the results file")
+    bench.add_argument(
         "--compare",
         nargs="+",
         metavar="RESULTS",
         type=Path,
         help="compare result files instead of running",
     )
-    bench_parser.add_argument(
+    bench.add_argument(
         "--list", action="store_true", help="list case ids and tags instead of running"
     )
-    args = parser.parse_args()
-    setup_logging(args.verbosity)
+    return parser
 
-    # Imports are deferred, so each command loads only the libraries it needs.
-    if args.command == "ask":
-        ask_command(args)
-    elif args.command == "config":
-        config_command(args)
-    elif args.command == "auth":
-        auth_command(args)
-    elif args.command == "bench":
-        bench_command(args)
-    else:
-        sync_command(args)
+
+def positive_int(text: str) -> int:
+    """An argparse type for integers of at least 1."""
+    value = int(text)
+    if value < 1:
+        raise argparse.ArgumentTypeError(f"must be at least 1, not {value}")
+    return value
+
+
+def main(argv: list[str] | None = None) -> None:
+    """Entry point for the vpop CLI."""
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    setup_logging(args.verbosity)
+    handlers = {
+        "sync": sync_command,
+        "ask": ask_command,
+        "config": config_command,
+        "auth": auth_command,
+        "bench": bench_command,
+    }
+    if args.command is None:
+        parser.print_help()
+        raise SystemExit(2)
+    try:
+        handlers[args.command](args)
+    except KeyboardInterrupt:
+        raise SystemExit(130) from None
 
 
 def load_or_exit() -> Config:
@@ -225,7 +242,7 @@ def ask_command(args: argparse.Namespace) -> None:
 
 def auth_command(args: argparse.Namespace) -> None:
     """Set up, check or remove the Anthropic credentials."""
-    from vpop.assistant import auth
+    from vpop.assistant import auth  # pylint: disable=import-outside-toplevel
 
     if args.auth_command == "login":
         if not auth.login(load_or_exit()):

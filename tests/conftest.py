@@ -4,6 +4,7 @@ directories, no Anthropic credentials and a fixed time zone, so nothing reads or
 real `~/.config/vpop` or `~/.local/share/vpop`.
 """
 
+import logging
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -32,6 +33,11 @@ def isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[None]:
     yield
     monkeypatch.undo()
     time.tzset()
+    # `cli.setup_logging` reconfigures the package logger; put it back for the next test.
+    logger = logging.getLogger("vpop")
+    logger.handlers.clear()
+    logger.setLevel(logging.NOTSET)
+    logger.propagate = True
 
 
 @pytest.fixture
