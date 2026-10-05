@@ -25,7 +25,7 @@ def build_toolbox(config: Config, db: Path) -> Toolbox:
     """
     The tools of every enabled source that can be queried now, plus `run_sql` when a synced
     source's data is in the database at `db`. A source that can't be queried is left out
-    with a warning; if none can, the first one's error is raised.
+    with a warning; if none can, the first one's error is raised and the rest are warned of.
     """
     toolsets: list[Toolset] = []
     problems: list[SourceError | DatabaseError] = []
@@ -37,10 +37,12 @@ def build_toolbox(config: Config, db: Path) -> Toolbox:
             problems.append(exc)
             continue
         database = database or isinstance(source, SyncedSource)
-    if not toolsets:
-        raise problems[0] if problems else SourceError("no data sources are enabled")
-    for problem in problems:
+    if not toolsets and not problems:
+        raise SourceError("no data sources are enabled")
+    for problem in problems[0 if toolsets else 1 :]:
         log.warning("%s", problem)
+    if not toolsets:
+        raise problems[0]
     if database:
         toolsets.append(SqlTools(db))
     return Toolbox(toolsets, db=db if database else None)

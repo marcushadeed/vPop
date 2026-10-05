@@ -46,8 +46,8 @@ def build_parser() -> argparse.ArgumentParser:
     """The argument parser for every subcommand."""
     parser = argparse.ArgumentParser(
         prog="vpop",
-        description="Ask questions about your own messages. Run it without a command to "
-        "chat.",
+        description="Ask questions about your own messages and calendar. Run it without a "
+        "command to chat.",
     )
     # A bare `vpop` is `vpop ask` without a question: the chat.
     parser.set_defaults(question=[])

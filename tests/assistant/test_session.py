@@ -124,6 +124,17 @@ def test_no_available_source_raises_the_first_reason(
         build_toolbox(Config(), db_path())
 
 
+def test_when_nothing_is_available_the_other_reasons_are_warned_of(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setattr(LiveAgenda, "down", True)
+    use_sources(monkeypatch, AndroidMessages, LiveAgenda)
+    with pytest.raises(DatabaseError, match="vpop sync"):
+        build_toolbox(Config(), db_path())
+    assert "run `vpop auth agenda`" in caplog.text
+    assert "vpop sync" not in caplog.text  # raised, not also warned of
+
+
 class Scripted(Conversation):
     """A conversation whose answers (or failures) are scripted per question."""
 
