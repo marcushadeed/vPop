@@ -9,12 +9,14 @@ exists yet.
 
 from __future__ import annotations
 
+import logging
 import os
-import sys
 import tomllib
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, get_type_hints
+
+log = logging.getLogger(__name__)
 
 THINK_CHOICES = ("on", "off", "default")
 EFFORT_CHOICES = ("low", "medium", "high", "xhigh", "max")
@@ -185,9 +187,9 @@ def load_config(path: Path | None = None) -> Config:
         try:
             write_default_config(path)
         except OSError as exc:
-            print(f"warning: couldn't create {path}: {exc}", file=sys.stderr)
+            log.warning("couldn't create %s: %s", path, exc)
         else:
-            print(f"created default config at {path}", file=sys.stderr)
+            log.info("created default config at %s", path)
         return Config()
     try:
         return parse_config(path.read_text())

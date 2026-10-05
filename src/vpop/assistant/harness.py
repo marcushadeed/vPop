@@ -8,8 +8,8 @@ the model never sees the database directly: it calls the read-only functions in
 """
 
 import inspect
+import logging
 import sqlite3
-import sys
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -23,6 +23,8 @@ from vpop.config import AssistantConfig, Config, OllamaConfig, load_config
 
 if TYPE_CHECKING:
     from vpop.assistant.claude_harness import ClaudeConversation
+
+log = logging.getLogger(__name__)
 
 
 def parse_think(value: str) -> bool | None:
@@ -115,9 +117,9 @@ def call_tool(name: str, arguments: Mapping[str, Any]) -> str:
 
 
 def log_tool_call(name: str, arguments: Mapping[str, Any]) -> None:
-    """Print a tool call to stderr so a long answer shows what it's doing."""
+    """Log a tool call so a long answer shows what it's doing."""
     args = ", ".join(f"{k}={v!r}" for k, v in arguments.items())
-    print(f"  → {name}({args})", file=sys.stderr)
+    log.info("  → %s(%s)", name, args)
 
 
 def today_label(today: str | None = None) -> str:

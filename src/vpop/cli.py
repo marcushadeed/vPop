@@ -1,6 +1,7 @@
 """Entry point for the vpop CLI."""
 
 import argparse
+import logging
 import sys
 from pathlib import Path
 
@@ -14,9 +15,48 @@ from vpop.config import (
 )
 
 
+class Formatter(logging.Formatter):
+    """Plain messages, with `warning:` / `error:` in front of the serious ones."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        message = super().format(record)
+        if record.levelno >= logging.WARNING:
+            return f"{record.levelname.lower()}: {message}"
+        return message
+
+
+def setup_logging(verbosity: int) -> None:
+    """Log to stderr: warnings with `-q`, progress and tool calls by default, all with `-v`."""
+    level = {-1: logging.WARNING, 0: logging.INFO}.get(verbosity, logging.DEBUG)
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(Formatter("%(message)s"))
+    root = logging.getLogger("vpop")
+    root.handlers[:] = [handler]
+    root.setLevel(level)
+    root.propagate = False
+
+
 def main():
     """Entry point for the vpop CLI. With no subcommand, runs `sync`."""
     parser = argparse.ArgumentParser(prog="vpop")
+    noise = parser.add_mutually_exclusive_group()
+    noise.add_argument(
+        "-v",
+        "--verbose",
+        action="store_const",
+        const=1,
+        default=0,
+        dest="verbosity",
+        help="show debug output",
+    )
+    noise.add_argument(
+        "-q",
+        "--quiet",
+        action="store_const",
+        const=-1,
+        dest="verbosity",
+        help="only show warnings and errors",
+    )
     subcommands = parser.add_subparsers(dest="command")
     subcommands.add_parser(
         "sync", help="update database with latest source information"
@@ -87,6 +127,7 @@ def main():
         "--list", action="store_true", help="list case ids and tags instead of running"
     )
     args = parser.parse_args()
+    setup_logging(args.verbosity)
 
     # Imports are deferred: `sync` needs the Drive secrets at import time, `ask` doesn't.
     if args.command == "ask":

@@ -6,8 +6,8 @@ handling with the local harness; only the model calls differ. The tool results t
 for (message rows) are sent to Anthropic.
 """
 
+import logging
 import os
-import sys
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -32,6 +32,8 @@ from vpop.assistant.harness import (
 )
 from vpop.config import AssistantConfig, ClaudeConfig
 from vpop.paths import anthropic_env_path
+
+log = logging.getLogger(__name__)
 
 # Where to create an API key.
 API_KEYS_URL = "https://platform.claude.com/settings/keys"
@@ -312,13 +314,13 @@ class ClaudeConversation:  # pylint: disable=too-many-instance-attributes
     def ask(self, question: str) -> str:
         """
         Ask a question and return the answer, keeping the exchange in the history. With
-        `verbose`, prints the question's token use and estimated cost to stderr.
+        `verbose`, logs the question's token use and estimated cost.
         """
         before = self.spend()
         answer = self.answer(question)
         if self.verbose:
             after = self.spend()
-            print(f"  {usage_line(after - before, after)}", file=sys.stderr)
+            log.info("  %s", usage_line(after - before, after))
         return answer
 
     def answer(self, question: str) -> str:

@@ -195,9 +195,10 @@ def test_trace_splits_cached_input() -> None:
     )
 
 
-def test_verbose_ask_prints_question_and_session_cost(
-    capsys: pytest.CaptureFixture[str],
+def test_verbose_ask_logs_question_and_session_cost(
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
+    caplog.set_level("INFO")
     replies = [
         text("a", input_tokens=10_000, output_tokens=1_000),
         text("b", input_tokens=20_000, output_tokens=1_000),
@@ -206,7 +207,7 @@ def test_verbose_ask_prints_question_and_session_cost(
     conversation.verbose = True
     conversation.ask("q1")
     conversation.ask("q2")
-    lines = capsys.readouterr().err.splitlines()
+    lines = [r.getMessage() for r in caplog.records if "usage:" in r.getMessage()]
     # $0.02 + $0.01 for the first question, $0.04 + $0.01 for the second.
     tokens = "in + 0 cached + 0 cache write, 1,000 out"
     assert lines == [

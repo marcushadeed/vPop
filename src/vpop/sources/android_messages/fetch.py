@@ -1,5 +1,7 @@
 """Download raw Android Messages XML backups from Drive."""
 
+import logging
+
 from vpop.data_paths import android_messages_raw_dir
 from vpop.sources.data_locations import MESSAGES_BACKUP_FOLDER_ID
 from vpop.sources.google_drive import (
@@ -7,6 +9,8 @@ from vpop.sources.google_drive import (
     get_drive_service,
     list_folder_files,
 )
+
+log = logging.getLogger(__name__)
 
 
 def download_raw_xml() -> None:
@@ -16,20 +20,19 @@ def download_raw_xml() -> None:
     files = list_folder_files(service, folder_id)
 
     for i, file in enumerate(files):
+        progress = f"({i + 1}/{len(files)})"
         # Skip if the file is already in the raw directory
         if (android_messages_raw_dir() / file["name"]).exists():
-            print(
-                f"({i + 1}/{len(files)}) Skipped {file['name']} (already in raw directory)"
-            )
+            log.debug("%s skipped %s (already downloaded)", progress, file["name"])
             continue
 
         # Download the file
         if file["name"].endswith(".xml"):
-            file_downloaded = download_file_by_name(
+            if download_file_by_name(
                 service, folder_id, file["name"], android_messages_raw_dir()
-            )
-
-            success_message = "Downloaded" if file_downloaded else "Failed to download"
-            print(f"({i + 1}/{len(files)}) {success_message} {file['name']} from Drive")
+            ):
+                log.info("%s downloaded %s", progress, file["name"])
+            else:
+                log.warning("%s couldn't download %s", progress, file["name"])
         else:
-            print(f"({i + 1}/{len(files)}) Skipped {file['name']} (not an XML file)")
+            log.debug("%s skipped %s (not an XML file)", progress, file["name"])
