@@ -68,6 +68,7 @@ def run(tools: MessageTools, name: str, **arguments: Any) -> ToolCall:
         ("find_threads", {"name_or_number": "nobody"}, "No threads match 'nobody'."),
         ("search_messages", {"text": "june"}, "3 messages"),
         ("search_messages", {"text": "june", "limit": 1}, "1 message (+2 more)"),
+        ("search_messages", {"text": "lunch"}, "1 message"),
         ("search_messages", {"text": "paris"}, "No messages match."),
         ("read_thread", {"thread_key": SAM, "limit": 2}, "2 of 3 messages"),
         ("run_sql", {"query": "SELECT COUNT(*) FROM messages"}, "1 row"),

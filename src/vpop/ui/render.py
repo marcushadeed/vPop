@@ -99,11 +99,11 @@ def arguments(values: Mapping[str, Any]) -> str:
 def result_summary(call: ToolCall) -> str:
     """
     A few words on what a tool call returned: `2 threads`, `14 messages (+36 more)`,
-    `30 of 812 messages`, `10 rows`. Errors and one-line results (`No messages match.`)
-    are shown as they are. This reads the text formats `vpop.assistant.tools` writes.
+    `30 of 812 messages`, `10 rows`. Errors and empty results (`No messages match.`) are
+    shown as they are. This reads the text formats `vpop.assistant.tools` writes.
     """
     lines = call.result.splitlines() or [""]
-    if call.is_error or len(lines) == 1:
+    if call.is_error or (len(lines) == 1 and lines[0].startswith("No ")):
         return lines[0]
     rows = [line for line in lines if not line.startswith("…")]
     if call.name == "read_thread":

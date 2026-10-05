@@ -1,6 +1,8 @@
 """Errors the assistant raises, and one-line explanations of the ones its backends raise."""
 
 import sys
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 
 from vpop.db import DatabaseError
 
@@ -47,3 +49,23 @@ def describe_error(exc: BaseException) -> str | None:  # pylint: disable=too-man
         # What the Ollama client raises when the server isn't running.
         return f"{exc} Start Ollama with: ollama serve"
     return None
+
+
+@contextmanager
+def report_failures(report: Callable[[str | None], None]) -> Iterator[None]:
+    """
+    For a block that answers one question: Ctrl+C, or a failure the user can act on (see
+    `describe_error`), ends the block and goes to `report` (None for Ctrl+C) instead of
+    being raised. Rejected credentials and unexpected errors are raised as usual.
+    """
+    try:
+        yield
+    except KeyboardInterrupt:
+        report(None)
+    except AuthError:
+        raise
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        message = describe_error(exc)
+        if message is None:
+            raise
+        report(message)

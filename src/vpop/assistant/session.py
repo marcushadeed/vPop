@@ -1,10 +1,13 @@
-"""Start a conversation with whichever model the config picks, for one question or a REPL."""
+"""
+Start a conversation with whichever model the config picks, and the plain question loop used
+when stdin isn't a terminal (at a terminal, `vpop.ui.chat` runs the chat instead).
+"""
 
 import sys
 from pathlib import Path
 
 from vpop.assistant.conversation import Conversation
-from vpop.assistant.errors import AuthError, describe_error
+from vpop.assistant.errors import report_failures
 from vpop.assistant.tools import MessageTools
 from vpop.config import Config
 from vpop.db import check_readable
@@ -39,9 +42,9 @@ def new_conversation(
 
 def repl(conversation: Conversation) -> None:
     """
-    Interactive question loop that keeps the conversation history. Exit with Ctrl-D.
-    Ctrl-C or a failure the user can act on (see `describe_error`) ends only that question;
-    rejected credentials end the session.
+    The plain question loop: read questions from stdin, keeping the conversation history.
+    Exit with Ctrl-D. Ctrl-C or a failure the user can act on (see `describe_error`) ends
+    only that question; rejected credentials end the session.
     """
     while True:
         try:
@@ -51,14 +54,11 @@ def repl(conversation: Conversation) -> None:
             return
         if not question:
             continue
-        try:
+        with report_failures(print_failure):
             print(conversation.ask(question), end="\n\n")
-        except KeyboardInterrupt:
-            print("(interrupted)\n", file=sys.stderr)
-        except AuthError:
-            raise
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            message = describe_error(exc)
-            if message is None:
-                raise
-            print(f"error: {message}\n", file=sys.stderr)
+
+
+def print_failure(message: str | None) -> None:
+    """How `repl` reports a question that ended early: interrupted, or why it failed."""
+    print("(interrupted)" if message is None else f"error: {message}", file=sys.stderr)
+    print(file=sys.stderr)
