@@ -12,57 +12,45 @@ That gives you two things: the ability to ask questions about your own informati
 
 ## Features
 
-**Multi-source ingestion**
-Pulls from texts, email, Google Calendar, reminders, notes, and photos of physical journals. Each source lands in a local SQLite database, one table per source.
+Pre-release. What works today is marked ✅; everything else is planned (see the roadmap).
 
-**Natural-language querying**
-An LLM tool harness reads the database with an emphasis on context efficiency and accuracy, so you can ask general questions about your own information instead of searching several apps.
-
-**Daily reports**
-A structured rundown of the day: schedule items, plus other relevant context like weather. Generated each morning and delivered to your phone.
-
-**To-do review**
-Beyond your schedule, the system looks over your to-do list and surfaces things worth doing today — including the small stuff that tends to fall through: text someone back, charge your AirPods.
-
-**Usable in the car**
-Audio output and a single-button trigger to generate a report, so the whole thing works hands-free.
+- ✅ **Text messages** — SMS, MMS and RCS from Android, via SMS Backup & Restore backups on Google Drive, imported into a local SQLite database.
+- ✅ **Natural-language questions** — `vpop ask` puts an LLM (a local Ollama model, or Claude) on top of the database through read-only query tools, so it pulls in only the rows it needs.
+- ✅ **Benchmark** — fixed questions over a synthetic database with known answers, for comparing models and settings.
+- Other sources — notes, email, Google Calendar, reminders, photos of physical journals.
+- Daily report — a morning rundown of your schedule and to-dos (text someone back, charge your AirPods), delivered to your phone, with audio output and a single-button trigger for the car.
+- Sync dashboard — when each source was last pulled, with sync triggers.
 
 ## Architecture
 
 ```mermaid
 graph LR
-    sources["sources"]
-    sync["sync"]
-    sqlite["SQLite"]
-    llm["LLM harness"]
-    queries["queries"]
-    daily["daily report"]
-    phone["phone"]
-    
-    sources --> sync
-    sync --> sqlite
-    sqlite --> llm
-    llm --> queries
-    llm --> daily
-    daily --> phone
+    backup["SMS Backup & Restore"] --> drive["Google Drive"]
+    drive -->|vpop sync| raw["raw XML backups"]
+    raw --> sqlite["SQLite"]
+    sqlite --> tools["read-only query tools"]
+    tools --> llm["Ollama or Claude"]
+    llm -->|vpop ask| you["you"]
 ```
 
-Sync status is tracked in a dashboard showing when each source was last pulled, with syncs triggerable from the dashboard directly. NFC tags are being considered as a way to prompt a sync from a phone.
+The downloaded backups are the source of truth; the database is derived from them and can be rebuilt at any time (`vpop sync --rebuild`). The model never sees the database directly: it calls tools that search messages (full-text and substring), read a conversation around a message, and run read-only SQL for counts.
 
-## Stack
+Code layout (`src/vpop/`):
 
-- **Ingestion** — Python. The sync mechanism differs per source, using whatever approach works best for each one, so expect this layer to be somewhat scattered by design.
-- **Storage** — SQLite, one table per source.
-- **LLM layer** — a skill plus Python scripts that give the model efficient, accurate access to the database.
-- **Dashboard** — HTML.
+- `cli.py` — the `vpop` command
+- `config.py`, `paths.py` — settings and every file location
+- `db.py` — schema, migrations and connections
+- `sources/` — one package per data source (`android_messages/`: fetch, parse, store, sync), plus the Google Drive client
+- `assistant/` — the query tools, the shared tool loop, the Ollama and Claude harnesses, `vpop auth`
+- `benchmark/` — the synthetic fixture, cases, grader and runner
 
 ## Roadmap
 
-### v1.0 — Ingestion and querying
-- Obsidian notes and text messages as sources
-- SQLite storage, one table per source
+### v1.0 — Ingestion and querying (in progress)
+- ✅ Text messages as a source; Obsidian notes next
+- ✅ SQLite storage
 - Sync-status dashboard with sync triggers
-- LLM tool harness for querying the database
+- ✅ LLM tool harness for querying the database
 
 ### v2.0 — Daily reports
 - Morning job runs on laptop, uploads to local server
@@ -75,17 +63,66 @@ Sync status is tracked in a dashboard showing when each source was last pulled, 
 ### v2.2 — Remaining sources
 - Samsung Notes, journal photos, Google Calendar
 
-## Status
-
-Pre-release. v1.0 is in progress; nothing here is stable yet.
-
 ## Installation
 
-_Not yet documented._
+Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
+
+```sh
+git clone https://github.com/marcushadeed/vPop.git && cd vPop
+uv tool install .        # puts `vpop` on your PATH (or: uv sync, then `uv run vpop`)
+vpop config init         # writes ~/.config/vpop/config.toml with every setting documented
+```
+
+### Text message backups
+
+1. On your Android phone, install **SMS Backup & Restore** and schedule a daily backup of messages to **Google Drive**. vPop reads XML backups; media is optional.
+2. Open the backup folder in Drive and copy the id from its URL (`https://drive.google.com/drive/folders/<id>`) into the config:
+   ```toml
+   [android_messages]
+   drive_folder_id = "<id>"
+   ```
+3. Create a Google OAuth client so vPop can read that folder: in [Google Cloud Console](https://console.cloud.google.com/), create a project, enable the **Google Drive API**, then *APIs & Services → Credentials → Create credentials → OAuth client ID → Desktop app*. Download the JSON and save it as `~/.config/vpop/oauth-client-credentials.json`.
+4. Run `vpop sync`. The first run opens a browser for consent (read-only Drive access); the token is cached beside the config, readable only by you.
+
+### A model
+
+- **Local (default, nothing leaves your machine):** install [Ollama](https://ollama.com/), run `ollama serve`, and pull a model with tool support: `ollama pull qwen3:8b`.
+- **Claude:** run `vpop auth login` to save an API key (or log in with the Anthropic CLI), and answer yes when it offers to switch `local_model` off. Message rows the model asks for are then sent to Anthropic.
 
 ## Usage
 
-_Not yet documented._
+```sh
+vpop sync                  # download new backups and import them
+vpop sync --offline        # import what's already downloaded, no network
+vpop sync --rebuild        # recreate the database from every downloaded backup
+
+vpop ask "Where did Jordan end up moving?"
+vpop ask                   # a conversation; Ctrl-C cancels a question, Ctrl-D exits
+
+vpop config show           # the settings in effect
+vpop auth status           # which Anthropic credentials are used, and whether they work
+
+vpop bench                                         # benchmark the configured Ollama model
+vpop bench --model qwen3:8b --think on --think off
+vpop bench --provider claude --effort low --effort medium   # costs API credits
+vpop bench --compare FILE1.jsonl FILE2.jsonl
+```
+
+`-v` shows debug output and `-q` hides progress. Files live in the XDG directories: settings and secrets in `~/.config/vpop/`, backups, the database and benchmark results in `~/.local/share/vpop/`.
+
+## Development
+
+```sh
+uv sync                      # installs vpop in editable mode plus the dev tools
+uv run pytest
+uv run ruff check src tests && uv run ruff format src tests
+uv run mypy                  # strict, for src/
+uv run pylint src && uv run pylint --rcfile tests/pylintrc tests
+```
+
+CI runs all of these on every push. Tests never touch your real config or data: each one gets its own temporary home and XDG directories.
+
+Changing the database schema: add a function to `db.MIGRATIONS` and bump `db.SCHEMA_VERSION`; never edit an existing migration. If a change alters how message ids (hashes) are computed, existing databases can't be migrated, so make `migrate` refuse them and point the user at `vpop sync --rebuild`, which works because the raw backups are kept.
 
 ## Privacy
 
