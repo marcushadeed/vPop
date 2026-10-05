@@ -1,0 +1,18 @@
+# pylint settings for the tests: `pylint --rcfile tests/pylintrc tests`.
+# Fixtures look like redefined or unused names to pylint, test names are their own
+# documentation, and `== []` reads more plainly in an assertion.
+[MAIN]
+extension-pkg-allow-list = lxml
+
+[MESSAGES CONTROL]
+disable =
+    missing-function-docstring,
+    missing-class-docstring,
+    redefined-outer-name,
+    unused-argument,
+    too-few-public-methods,
+    protected-access,
+    duplicate-code,
+    invalid-name,
+    use-implicit-booleaness-not-comparison,
+    super-init-not-called,

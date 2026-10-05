@@ -3,25 +3,23 @@ name = "vpop"
 version = "0.1.0"
 description = "Value Productivity Over Privacy. Give an LLM access to all your data and enjoy your personal assistant!"
 readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Marcus Hadeed" }]
 requires-python = ">=3.12"
 dependencies = [
     "anthropic>=1.8.0",
     "google-api-python-client>=2.198.0",
-    "google-auth-httplib2>=0.4.0",
     "google-auth-oauthlib>=1.4.0",
     "lxml>=6.1.2",
-    "mypy>=2.3.1",
     "ollama>=0.6.2",
-    "pylint>=4.0.7",
-    "ruff>=0.16.4",
-    "sqlite-utils>=3.39",
 ]
 
 [project.scripts]
 vpop = "vpop.cli:main"
 
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
@@ -29,27 +27,41 @@ where = ["src"]
 
 [dependency-groups]
 dev = [
+    "httpx2>=2.13.1",
     "lxml-stubs>=0.5.1",
+    "mypy>=2.3.1",
+    "pylint>=4.0.7",
     "pytest>=9.1.1",
+    "ruff>=0.16.4",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
 [tool.ruff.lint]
+extend-select = ["I", "UP", "B", "SIM", "RUF"]
 # Message times are local wall-clock strings, so naive datetimes are intended.
 ignore = ["DTZ001"]
+# Curly quotes appear in real message text; × is the matrix symbol in benchmark output.
+allowed-confusables = ["‘", "’", "“", "”", "×"]
 
 [tool.pylint.main]
 extension-pkg-allow-list = ["lxml"]
 
-[tool.isort]
-profile = "black"
+[tool.mypy]
+strict = true
+packages = ["vpop"]
+mypy_path = "src"
 
 [[tool.mypy.overrides]]
-module = ["google_auth_oauthlib.*", "googleapiclient.*"]
+module = ["google_auth_oauthlib.*", "googleapiclient.*", "google.oauth2.*", "google.auth.*"]
 ignore_missing_imports = true
 
 [tool.ruff.lint.flake8-bugbear]
 # `config.setting` returns a dataclass `field(...)`, which is safe as a default.
 extend-immutable-calls = ["vpop.config.setting"]
+
+[[tool.mypy.overrides]]
+# google-auth ships partial types; its Credentials methods are unannotated.
+module = ["vpop.sources.google_drive"]
+disallow_untyped_calls = false
