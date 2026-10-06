@@ -7,6 +7,9 @@ from contextlib import contextmanager
 from vpop.db import DatabaseError
 from vpop.sources import SourceError
 
+# Where to buy credits when the balance runs out.
+BILLING_URL = "https://platform.claude.com/settings/billing"
+
 
 class AuthError(RuntimeError):
     """The model's API has no credentials, or rejected them. The message says what to do."""
@@ -45,7 +48,11 @@ def describe_error(exc: BaseException) -> str | None:  # pylint: disable=too-man
         if isinstance(exc, anthropic.APIConnectionError):
             return f"couldn't reach the Anthropic API: {exc}"
         if isinstance(exc, anthropic.APIStatusError):
-            return f"Anthropic API error {exc.status_code}: {api_error_detail(exc)}{request}"
+            detail = api_error_detail(exc)
+            message = f"Anthropic API error {exc.status_code}: {detail}{request}"
+            if "credit balance" in detail.lower():
+                message += f"\nAdd credits at {BILLING_URL}"
+            return message
     if isinstance(exc, ConnectionError):
         # What the Ollama client raises when the server isn't running.
         return f"{exc} Start Ollama with: ollama serve"

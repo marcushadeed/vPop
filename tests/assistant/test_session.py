@@ -13,7 +13,7 @@ from helpers import build_db, make_message
 from vpop.assistant import session
 from vpop.assistant.claude_harness import ClaudeConversation
 from vpop.assistant.conversation import Conversation
-from vpop.assistant.errors import AuthError, describe_error
+from vpop.assistant.errors import BILLING_URL, AuthError, describe_error
 from vpop.assistant.ollama_harness import OllamaConversation
 from vpop.assistant.session import build_toolbox, new_conversation, repl
 from vpop.assistant.toolbox import Toolset
@@ -199,10 +199,10 @@ def test_repl_surfaces_unexpected_errors(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 def api_error(
-    cls: type[anthropic.APIStatusError], status: int
+    cls: type[anthropic.APIStatusError], status: int, message: str = "Overloaded"
 ) -> anthropic.APIStatusError:
     request = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
-    body = {"type": "error", "error": {"message": "Overloaded"}}
+    body = {"type": "error", "error": {"message": message}}
     response = httpx2.Response(
         status, json=body, request=request, headers={"request-id": "req_1"}
     )
@@ -222,6 +222,14 @@ def api_error(
 def test_describe_error(exc: BaseException, expected: str) -> None:
     message = describe_error(exc)
     assert message is not None and expected in message
+
+
+def test_low_credit_balance_points_to_billing() -> None:
+    low = "Your credit balance is too low to access the Anthropic API."
+    message = describe_error(api_error(anthropic.BadRequestError, 400, low))
+    assert message is not None
+    assert "error 400: Your credit balance is too low" in message
+    assert message.endswith(f"\nAdd credits at {BILLING_URL}")
 
 
 def test_describe_error_leaves_bugs_alone() -> None:
