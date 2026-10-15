@@ -4,7 +4,6 @@ and `threads` tables. Results have one line per message (`timestamp | thread | f
 with bodies cut to `BODY_CHARS`.
 """
 
-import re
 from collections.abc import Mapping
 from contextlib import closing
 from sqlite3 import Connection
@@ -13,11 +12,13 @@ from vpop.assistant.toolbox import (
     LABEL_CHARS,
     DatabaseToolset,
     clamp_limit,
+    like_pattern,
+    message_text,
     one_line,
-    time_range,
 )
 from vpop.sources.android_messages.model import Direction, normalize_address
 from vpop.sources.android_messages.model import thread_key as normalize_thread_key
+from vpop.sources.message_queries import MessageTable, more_lines, name_patterns
 
 PROMPT = """\
 Text messages are in SQLite. Table `messages`, one row per message:
@@ -54,34 +55,12 @@ FROM messages WHERE thread_key = '<thread_key>' GROUP BY month ORDER BY month`
 """
 
 
-def like_pattern(text: str) -> str:
-    """A `LIKE ... ESCAPE '\\'` pattern matching `text` anywhere, with wildcards escaped."""
-    escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    return f"%{escaped}%"
-
-
-def fts_query(text: str) -> str:
-    """
-    An FTS5 query requiring every word in `text`, each as a prefix of its stem, so "move"
-    finds "moving" and "pupp" finds "puppy".
-    """
-    words = re.findall(r"\w+", text)
-    if not words:
-        raise ValueError(
-            "text has no words to search for; use contains for symbols, emoji or codes"
-        )
-    return " ".join(f'"{word}"*' for word in words)
-
-
 def normalize_thread(key: str) -> str:
     """Accept a thread key in any phone format, with or without spaces after commas."""
     return normalize_thread_key(key.strip())
 
 
-def message_text(body: str, attachments: str) -> str:
-    """A message body for display, with its attachments' types in front."""
-    tags = "".join(f"[{kind}] " for kind in attachments.split(",") if kind)
-    return one_line(tags + body)
+MESSAGES = MessageTable("messages", "thread_key", normalize_thread, normalize_address)
 
 
 def sender_label(
@@ -132,14 +111,8 @@ class MessageTools(DatabaseToolset):
             name_or_number: Part of a contact name, or part of a phone number.
             limit: Maximum number of threads to return, most recently active first.
         """
-        query = name_or_number.strip()
-        if not query:
-            raise ValueError("name_or_number is empty")
+        query, patterns = name_patterns(name_or_number)
         limit = clamp_limit(limit)
-        patterns = {like_pattern(query), like_pattern(normalize_address(query))}
-        digits = re.sub(r"\D", "", query)
-        if len(digits) >= 4:
-            patterns.add(like_pattern(digits))
         key_match = " OR ".join("thread_key LIKE ? ESCAPE '\\'" for _ in patterns)
 
         with closing(self.connect()) as conn:
@@ -163,7 +136,7 @@ class MessageTools(DatabaseToolset):
             lines.append(f"… {len(rows) - limit} more (raise limit)")
         return "\n".join(lines)
 
-    def search_messages(  # pylint: disable=too-many-arguments,too-many-locals,too-many-branches
+    def search_messages(  # pylint: disable=too-many-arguments,too-many-locals
         self,
         *,
         text: str | None = None,
@@ -192,54 +165,27 @@ class MessageTools(DatabaseToolset):
             limit: Maximum number of messages to return.
             offset: Number of newest matches to skip, for paging.
         """
-        clauses: list[str] = []
-        params: list[str | int] = []
-        if text:
-            clauses.append(
-                "rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?)"
-            )
-            params.append(fts_query(text))
-        if contains:
-            clauses.append("body LIKE ? ESCAPE '\\'")
-            params.append(like_pattern(contains))
-        if thread_key:
-            clauses.append("thread_key = ?")
-            params.append(normalize_thread(thread_key))
-        if sender:
-            if sender.strip().lower() == "me":
-                if direction == Direction.INCOMING.value:
-                    raise ValueError(
-                        'sender="me" means outgoing messages; drop direction="incoming"'
-                    )
-                direction = Direction.OUTGOING.value
-            else:
-                clauses.append("sender = ?")
-                params.append(normalize_address(sender))
-        if direction:
-            if direction not in {d.value for d in Direction}:
-                raise ValueError('direction must be "incoming" or "outgoing"')
-            clauses.append("direction = ?")
-            params.append(direction)
-        if since:
-            clauses.append("timestamp >= ?")
-            params.append(time_range(since, "since")[0])
-        if until:
-            clauses.append("timestamp <= ?")
-            params.append(time_range(until, "until")[1])
-        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        where, params = MESSAGES.filters(
+            text=text,
+            contains=contains,
+            key=thread_key,
+            sender=sender,
+            since=since,
+            until=until,
+            direction=direction,
+        )
         limit = clamp_limit(limit)
         offset = max(0, int(offset))
 
         with closing(self.connect()) as conn:
-            total = conn.execute(
-                f"SELECT COUNT(*) FROM messages {where}", params
-            ).fetchone()[0]
-            rows = conn.execute(
-                "SELECT timestamp, thread_key, direction, was_sent, sender, body, "
-                f"attachments FROM messages {where} "
-                "ORDER BY epoch_ms DESC, rowid DESC LIMIT ? OFFSET ?",
-                (*params, limit, offset),
-            ).fetchall()
+            total, rows = MESSAGES.page(
+                conn,
+                "timestamp, thread_key, direction, was_sent, sender, body, attachments",
+                where,
+                params,
+                limit=limit,
+                offset=offset,
+            )
             names = self.contact_names(conn) if rows else {}
 
         if not rows:
@@ -287,74 +233,34 @@ class MessageTools(DatabaseToolset):
             limit: Maximum number of messages to return.
         """
         key = normalize_thread(thread_key)
-        limit = clamp_limit(limit)
-        clauses = ["thread_key = ?"]
-        params: list[str | int] = [key]
-        if since:
-            clauses.append("timestamp >= ?")
-            params.append(time_range(since, "since")[0])
-        if until:
-            clauses.append("timestamp <= ?")
-            params.append(time_range(until, "until")[1])
-        where = " AND ".join(clauses)
-        select = (
-            "SELECT timestamp, direction, was_sent, sender, body, attachments, epoch_ms, "
-            f"rowid FROM messages WHERE {where}"
-        )
-        newest_first = "ORDER BY epoch_ms DESC, rowid DESC"
-        oldest_first = "ORDER BY epoch_ms ASC, rowid ASC"
-
         with closing(self.connect()) as conn:
-            total = conn.execute(
-                f"SELECT COUNT(*) FROM messages WHERE {where}", params
-            ).fetchone()[0]
-            if total == 0:
+            window = MESSAGES.window(
+                conn,
+                "timestamp, direction, was_sent, sender, body, attachments",
+                key,
+                around=around,
+                since=since,
+                until=until,
+                limit=clamp_limit(limit),
+            )
+            if not window.total:
                 return (
                     f"No messages in thread {key!r} for that range. "
                     "Check the key with find_threads."
                 )
-            if around:
-                center = time_range(around, "around")[0]
-                before = conn.execute(
-                    f"{select} AND timestamp <= ? {newest_first} LIMIT ?",
-                    (*params, center, (limit + 1) // 2),
-                ).fetchall()
-                after = conn.execute(
-                    f"{select} AND timestamp > ? {oldest_first} LIMIT ?",
-                    (*params, center, limit - len(before)),
-                ).fetchall()
-                rows = [*reversed(before), *after]
-            elif since:
-                rows = conn.execute(
-                    f"{select} {oldest_first} LIMIT ?", (*params, limit)
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    f"{select} {newest_first} LIMIT ?", (*params, limit)
-                ).fetchall()
-                rows.reverse()
-            # (epoch_ms, rowid) orders messages that share a second the same way as above.
-            earlier = conn.execute(
-                f"SELECT COUNT(*) FROM messages WHERE {where} AND (epoch_ms, rowid) < (?, ?)",
-                (*params, *rows[0][-2:]),
-            ).fetchone()[0]
-            later = conn.execute(
-                f"SELECT COUNT(*) FROM messages WHERE {where} AND (epoch_ms, rowid) > (?, ?)",
-                (*params, *rows[-1][-2:]),
-            ).fetchone()[0]
             names = self.contact_names(conn)
             label = self.thread_label(conn, key)
 
-        lines = [
-            f"thread {key} ({one_line(label, LABEL_CHARS)}): {len(rows)} of {total} messages"
-        ]
-        if earlier:
-            lines.append(f"… {earlier} earlier (use until or around)")
-        lines += [
-            f"{ts} | {sender_label(direc, sent, snd, names)} | "
-            f"{message_text(body, attachments)}"
-            for ts, direc, sent, snd, body, attachments, _, _ in rows
-        ]
-        if later:
-            lines.append(f"… {later} later (use since or around)")
-        return "\n".join(lines)
+        lines = more_lines(
+            window,
+            [
+                f"{ts} | {sender_label(direc, sent, snd, names)} | "
+                f"{message_text(body, attachments)}"
+                for ts, direc, sent, snd, body, attachments in window.rows
+            ],
+        )
+        heading = (
+            f"thread {key} ({one_line(label, LABEL_CHARS)}): "
+            f"{len(window.rows)} of {window.total} messages"
+        )
+        return "\n".join([heading, *lines])

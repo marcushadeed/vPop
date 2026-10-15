@@ -95,6 +95,31 @@ def time_range(value: str, name: str) -> tuple[str, str]:
     return first.strftime(fmt), last.strftime(fmt)
 
 
+def like_pattern(text: str) -> str:
+    """A `LIKE ... ESCAPE '\\'` pattern matching `text` anywhere, with wildcards escaped."""
+    escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
+def fts_query(text: str) -> str:
+    """
+    An FTS5 query requiring every word in `text`, each as a prefix of its stem, so "move"
+    finds "moving" and "pupp" finds "puppy".
+    """
+    words = re.findall(r"\w+", text)
+    if not words:
+        raise ValueError(
+            "text has no words to search for; use contains for symbols, emoji or codes"
+        )
+    return " ".join(f'"{word}"*' for word in words)
+
+
+def message_text(body: str, attachments: str) -> str:
+    """A message body for display, with its attachments' types in front."""
+    tags = "".join(f"[{kind}] " for kind in attachments.split(",") if kind)
+    return one_line(tags + body)
+
+
 def cap_result(text: str) -> str:
     """Cut a tool result to `MAX_RESULT_CHARS` at a line break, saying how to narrow it."""
     if len(text) <= MAX_RESULT_CHARS:
