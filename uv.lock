@@ -1366,6 +1366,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
+    { name = "cryptography" },
     { name = "google-api-python-client" },
     { name = "google-auth-oauthlib" },
     { name = "lxml" },
@@ -1387,6 +1388,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "anthropic", specifier = ">=1.8.0" },
+    { name = "cryptography", specifier = ">=50.0.0" },
     { name = "google-api-python-client", specifier = ">=2.198.0" },
     { name = "google-auth-oauthlib", specifier = ">=1.4.0" },
     { name = "lxml", specifier = ">=6.1.2" },

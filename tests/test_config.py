@@ -9,6 +9,7 @@ from vpop.config import (
     ClaudeConfig,
     Config,
     ConfigError,
+    WhatsAppConfig,
     load_config,
     parse_config,
     render_config,
@@ -60,6 +61,14 @@ def test_render_round_trips_non_defaults() -> None:
         '[android_messages]\ndrive_folder_id = "abc123"\n'
     )
     assert config.android_messages == AndroidMessagesConfig(drive_folder_id="abc123")
+    assert parse_config(render_config(config)) == config
+
+
+def test_whatsapp_section() -> None:
+    assert Config().whatsapp == WhatsAppConfig(enabled=False, drive_folder_id="")
+    config = parse_config('[whatsapp]\nenabled = true\ndrive_folder_id = "f1"\n')
+    assert config.whatsapp == WhatsAppConfig(enabled=True, drive_folder_id="f1")
+    assert "[whatsapp]" in render_config(Config())
     assert parse_config(render_config(config)) == config
 
 

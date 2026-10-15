@@ -11,6 +11,10 @@ Tables:
 - `threads`: one row per conversation with its display label, message count and first/last
   timestamps, recomputed after every import.
 - `imports`: which backup files have been imported, so a sync skips them next time.
+- `whatsapp_messages`: one row per WhatsApp message (see `WhatsAppMessage`), with its FTS5
+  index `whatsapp_messages_fts`.
+- `whatsapp_chats`: one row per WhatsApp chat with its group subject, display label, message
+  count and first/last timestamps, recomputed after every import.
 """
 
 import sqlite3
@@ -18,7 +22,7 @@ from collections.abc import Callable
 from contextlib import closing
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # Contact names the backup uses when it doesn't know who a number belongs to.
 UNKNOWN_NAMES = ("", "(Unknown)")
@@ -88,8 +92,57 @@ def create_v1(conn: sqlite3.Connection) -> None:
     )
 
 
+def create_v2(conn: sqlite3.Connection) -> None:
+    """WhatsApp messages and chats."""
+    conn.executescript(
+        """
+        CREATE TABLE whatsapp_messages (
+            id TEXT PRIMARY KEY,
+            key_id TEXT NOT NULL,
+            epoch_ms INTEGER NOT NULL,
+            timestamp TEXT NOT NULL,
+            direction TEXT NOT NULL,
+            chat_key TEXT NOT NULL,
+            sender TEXT NOT NULL,
+            body TEXT NOT NULL,
+            attachments TEXT NOT NULL DEFAULT ''
+        );
+        CREATE INDEX idx_whatsapp_chat_epoch ON whatsapp_messages (chat_key, epoch_ms);
+        CREATE INDEX idx_whatsapp_epoch ON whatsapp_messages (epoch_ms);
+        CREATE INDEX idx_whatsapp_timestamp ON whatsapp_messages (timestamp);
+
+        CREATE VIRTUAL TABLE whatsapp_messages_fts USING fts5(
+            body, content='whatsapp_messages', content_rowid='rowid',
+            tokenize='porter unicode61 remove_diacritics 2'
+        );
+        CREATE TRIGGER whatsapp_fts_insert AFTER INSERT ON whatsapp_messages BEGIN
+            INSERT INTO whatsapp_messages_fts (rowid, body) VALUES (new.rowid, new.body);
+        END;
+        CREATE TRIGGER whatsapp_fts_delete AFTER DELETE ON whatsapp_messages BEGIN
+            INSERT INTO whatsapp_messages_fts (whatsapp_messages_fts, rowid, body)
+            VALUES ('delete', old.rowid, old.body);
+        END;
+        CREATE TRIGGER whatsapp_fts_update AFTER UPDATE OF body ON whatsapp_messages BEGIN
+            INSERT INTO whatsapp_messages_fts (whatsapp_messages_fts, rowid, body)
+            VALUES ('delete', old.rowid, old.body);
+            INSERT INTO whatsapp_messages_fts (rowid, body) VALUES (new.rowid, new.body);
+        END;
+
+        CREATE TABLE whatsapp_chats (
+            chat_key TEXT PRIMARY KEY,
+            subject TEXT NOT NULL DEFAULT '',
+            label TEXT NOT NULL,
+            is_group INTEGER NOT NULL,
+            message_count INTEGER NOT NULL,
+            first TEXT NOT NULL,
+            last TEXT NOT NULL
+        );
+        """
+    )
+
+
 # MIGRATIONS[n] takes a database at version n to version n + 1. Append, never edit.
-MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [create_v1]
+MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [create_v1, create_v2]
 assert len(MIGRATIONS) == SCHEMA_VERSION
 
 
@@ -161,10 +214,15 @@ def check_readable(path: Path) -> None:
 
 
 def message_summary(path: Path) -> tuple[int, str | None]:
-    """How many messages the database holds, and the newest one's timestamp (None if empty)."""
+    """
+    How many messages the database holds, text and WhatsApp together, and the newest one's
+    timestamp (None if empty).
+    """
     with closing(connect_readonly(path)) as conn:
         count, newest = conn.execute(
-            "SELECT COALESCE(SUM(message_count), 0), MAX(last) FROM threads"
+            "SELECT COALESCE(SUM(message_count), 0), MAX(last) FROM ("
+            "SELECT message_count, last FROM threads "
+            "UNION ALL SELECT message_count, last FROM whatsapp_chats)"
         ).fetchone()
     return int(count), newest
 

@@ -8,6 +8,7 @@ import pytest
 from helpers import SAM, build_db, make_message
 
 from vpop import db
+from vpop.sources.android_messages.store import insert_messages
 
 
 def test_new_database_gets_current_schema(tmp_path: Path) -> None:
@@ -16,6 +17,19 @@ def test_new_database_gets_current_schema(tmp_path: Path) -> None:
         assert db.user_version(conn) == db.SCHEMA_VERSION
         tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master")}
     assert {"messages", "messages_fts", "threads", "imports"} <= tables
+    assert {"whatsapp_messages", "whatsapp_messages_fts", "whatsapp_chats"} <= tables
+
+
+def test_version_1_database_gains_the_whatsapp_tables(tmp_path: Path) -> None:
+    path = tmp_path / "vpop.db"
+    with closing(sqlite3.connect(path)) as conn:
+        db.create_v1(conn)
+        conn.execute("PRAGMA user_version = 1")
+        insert_messages(conn, [make_message()])
+    with closing(db.connect(path)) as conn:
+        assert db.user_version(conn) == db.SCHEMA_VERSION
+        assert conn.execute("SELECT COUNT(*) FROM messages").fetchone() == (1,)
+        assert conn.execute("SELECT COUNT(*) FROM whatsapp_messages").fetchone() == (0,)
 
 
 def test_old_unversioned_database_must_be_rebuilt(tmp_path: Path) -> None:
@@ -87,6 +101,20 @@ def test_message_summary_counts_messages_and_finds_the_newest(tmp_path: Path) ->
         ],
     )
     assert db.message_summary(path) == (3, "2026-08-03 21:15:00")
+
+
+def test_message_summary_counts_whatsapp_too(tmp_path: Path) -> None:
+    path = build_db(
+        tmp_path / "vpop.db", [make_message(timestamp="2026-08-01 09:00:00")]
+    )
+    with closing(sqlite3.connect(path)) as conn:
+        conn.execute(
+            "INSERT INTO whatsapp_chats (chat_key, label, is_group, message_count, first, "
+            "last) VALUES (?, '', 0, 2, '2026-08-01 00:00:00', '2026-09-01 08:00:00')",
+            (SAM,),
+        )
+        conn.commit()
+    assert db.message_summary(path) == (3, "2026-09-01 08:00:00")
 
 
 def test_message_summary_of_an_empty_database(tmp_path: Path) -> None:

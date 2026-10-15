@@ -33,8 +33,8 @@ class SqlTools(DatabaseToolset):
         I text most in 2025". Results are cut to `limit` rows.
 
         Args:
-            query: A single SQLite SELECT or WITH statement over the messages and threads
-                tables.
+            query: A single SQLite SELECT or WITH statement over the messages, threads,
+                whatsapp_messages and whatsapp_chats tables.
             limit: Maximum number of rows to return.
         """
         statement = query.strip()

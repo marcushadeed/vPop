@@ -49,6 +49,10 @@ class Source(ABC):
 class SyncedSource(Source):
     """A source copied to disk: its raw files are the source of truth, the database derived."""
 
+    # Said on `vpop sync --rebuild` by a source whose raw files don't hold everything the
+    # database does, e.g. one that keeps only its latest backup.
+    rebuild_warning: ClassVar[str] = ""
+
     @abstractmethod
     def download(self, google_scopes: Sequence[str]) -> None:
         """

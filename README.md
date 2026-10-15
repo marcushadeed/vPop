@@ -6,7 +6,7 @@ Instead of asking you to switch to a new productivity tool, this one sits on top
 
 ## Overview
 
-Most productivity tools require you to move your life into them. This one goes the other direction: it reads from the places your information already lives — messages, notes, calendars, email — and puts an LLM on top of it. What has an API (Google Calendar) is read live while you ask; what doesn't (phone message backups) is copied into a local database.
+Most productivity tools require you to move your life into them. This one goes the other direction: it reads from the places your information already lives — messages, notes, calendars, email — and puts an LLM on top of it. What has an API (Google Calendar) is read live while you ask; what doesn't (text message and WhatsApp backups) is copied into a local database.
 
 That gives you two things: the ability to ask questions about your own information in plain language, and a daily briefing assembled from everything the system knows about your day.
 
@@ -15,6 +15,7 @@ That gives you two things: the ability to ask questions about your own informati
 Pre-release. What works today is marked ✅; everything else is planned (see the roadmap).
 
 - ✅ **Text messages** — SMS, MMS and RCS from Android, via SMS Backup & Restore backups on Google Drive, imported into a local SQLite database.
+- ✅ **WhatsApp** — Android's end-to-end encrypted backups on Google Drive, decrypted with your backup key and imported into the same database. Chats are named from your text message contacts.
 - ✅ **Natural-language questions** — `vpop` opens a chat in the terminal that puts an LLM (a local Ollama model, or Claude) on top of the database through read-only query tools, so it pulls in only the rows it needs.
 - ✅ **Benchmark** — fixed questions over a synthetic database with known answers, for comparing models and settings.
 - ✅ **Google Calendar** — read live and read-only through the Calendar API while a question is answered; nothing is stored.
@@ -27,7 +28,8 @@ Pre-release. What works today is marked ✅; everything else is planned (see the
 ```mermaid
 graph LR
     backup["SMS Backup & Restore"] --> drive["Google Drive"]
-    drive -->|vpop sync| raw["raw XML backups"]
+    whatsapp["WhatsApp backups"] --> drive
+    drive -->|vpop sync| raw["raw backups"]
     raw --> sqlite["SQLite"]
     sqlite --> tools["read-only query tools"]
     calendar["Google Calendar API"] -->|live, read-only| tools
@@ -35,16 +37,16 @@ graph LR
     llm -->|vpop| you["you"]
 ```
 
-Sources come in two kinds. A *synced* source (text messages) is copied to disk by `vpop sync`: the downloaded backups are the source of truth, and the database is derived from them and can be rebuilt at any time (`vpop sync --rebuild`). A *live* source (Google Calendar) is read through its API while a question is answered, with a read-only scope, and nothing is stored.
+Sources come in two kinds. A *synced* source (text messages, WhatsApp) is copied to disk by `vpop sync`: the downloaded backups are the source of truth, and the database is derived from them and can be rebuilt at any time (`vpop sync --rebuild`). WhatsApp is the exception: each full backup holds your whole history, so only the latest one is kept, and a rebuild loses WhatsApp messages you've deleted on the phone since earlier syncs (it warns). A *live* source (Google Calendar) is read through its API while a question is answered, with a read-only scope, and nothing is stored.
 
-The model never sees the data directly: it calls tools that search messages (full-text and substring), read a conversation around a message, run read-only SQL for counts, and search and read calendar events. Each source contributes its tools and its part of the system prompt, and a source that isn't set up is left out of the conversation with a warning.
+The model never sees the data directly: it calls tools that search text and WhatsApp messages (full-text and substring), read a conversation around a message, run read-only SQL for counts, and search and read calendar events. Each source contributes its tools and its part of the system prompt, and a source that isn't set up is left out of the conversation with a warning.
 
 Code layout (`src/vpop/`):
 
 - `cli.py` — the `vpop` command
 - `config.py`, `paths.py` — settings and every file location
 - `db.py` — schema, migrations and connections
-- `sources/` — the `Source` interface (`base.py`), the list of sources (`registry.py`), `vpop sync`, and one package per source: `android_messages/` (fetch, parse, store, sync, tools) and `google_calendar/` (API client, tools); `google/` holds the shared Google OAuth and the Drive client
+- `sources/` — the `Source` interface (`base.py`), the list of sources (`registry.py`), `vpop sync`, `message_queries.py` (the search and conversation queries both message sources' tools share), and one package per source: `android_messages/` (fetch, parse, store, sync, tools), `whatsapp/` (fetch, crypt15 decryption, full-backup and increment readers, store, sync, tools) and `google_calendar/` (API client, tools); `google/` holds the shared Google OAuth and the Drive client
 - `assistant/` — the toolbox and `run_sql`, the system prompt, the shared tool loop, the Ollama and Claude harnesses, `vpop auth`
 - `ui/` — the chat: rich draws the transcript, prompt_toolkit reads the input
 - `benchmark/` — the synthetic fixture, cases, grader and runner
@@ -63,7 +65,8 @@ Code layout (`src/vpop/`):
 - Report generated server-side and sent to phone
 
 ### v2.1 — More sources, audio out
-- WhatsApp and reminders
+- ✅ WhatsApp
+- Reminders
 - Out-loud podcast-style report
 
 ### v2.2 — Remaining sources
@@ -89,6 +92,27 @@ vpop config init         # writes ~/.config/vpop/config.toml with every setting 
    ```
 3. Create a Google OAuth client so vPop can read that folder: in [Google Cloud Console](https://console.cloud.google.com/), create a project, enable the **Google Drive API**, then *APIs & Services → Credentials → Create credentials → OAuth client ID → Desktop app*. Download the JSON and save it as `~/.config/vpop/oauth-client-credentials.json`.
 4. Run `vpop sync`. The first run opens a browser for consent (read-only Drive access); the token is cached beside the config, readable only by you.
+
+### WhatsApp backups
+
+vPop reads WhatsApp's **end-to-end encrypted** local backups from Android (`msgstore*.db.crypt15`). WhatsApp makes a full backup every few days and a small increment each day in between; vPop reads both, so it's at most a day behind.
+
+1. In WhatsApp, turn on *Settings → Chats → Chat backup → End-to-end encrypted backup* and choose **Use 64-digit encryption key instead**. Write the key down.
+2. Get the backups from `Android/media/com.whatsapp/WhatsApp/Databases/` onto Google Drive every day, e.g. with a cron job running `rclone copy`. Older crypt14 files in the folder are ignored.
+3. Save the key, readable only by you:
+   ```sh
+   printf '%s\n' '<the 64 hex digits, no spaces>' > ~/.config/vpop/whatsapp-key
+   chmod 600 ~/.config/vpop/whatsapp-key
+   ```
+4. Turn it on in the config, with the Drive folder's id:
+   ```toml
+   [whatsapp]
+   enabled = true
+   drive_folder_id = "<id>"
+   ```
+5. Run `vpop sync`. It uses the same OAuth client and read-only Drive access as the text messages.
+
+The backups stay encrypted on disk; each sync decrypts them into a temporary file, imports them, and deletes it. WhatsApp hides some numbers behind privacy ids (`…@lid`); the backup maps most of them back to numbers, and the rest show as the id.
 
 ### Google Calendar
 
@@ -160,7 +184,7 @@ Changing the database schema: add a function to `db.MIGRATIONS` and bump `db.SCH
 
 ## Privacy
 
-This project deliberately trades privacy for convenience — that tradeoff is the premise, not an oversight. Your messages, notes, and calendar data are gathered in one place and passed to an LLM: with Claude, the message rows and calendar events the model asks for are sent to Anthropic. vPop only ever asks Google for read-only access, so even a model misled by text in an invite or a message can't change your data. Consider carefully where that model runs and what your threat model is before pointing this at your real accounts.
+This project deliberately trades privacy for convenience — that tradeoff is the premise, not an oversight. Your messages, notes, and calendar data are gathered in one place and passed to an LLM: with Claude, the message rows and calendar events the model asks for are sent to Anthropic. WhatsApp messages are end-to-end encrypted in WhatsApp and in their backups, but vPop decrypts them into its local database with your backup key, so the database (and `~/.config/vpop/whatsapp-key`) deserve the same care as the phone. vPop only ever asks Google for read-only access, so even a model misled by text in an invite or a message can't change your data. Consider carefully where that model runs and what your threat model is before pointing this at your real accounts.
 
 ## License
 

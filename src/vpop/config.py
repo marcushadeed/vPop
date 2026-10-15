@@ -110,6 +110,23 @@ class GoogleCalendarConfig:
 
 
 @dataclass(frozen=True)
+class WhatsAppConfig:
+    """The `[whatsapp]` section: where `vpop sync` finds the WhatsApp backups."""
+
+    enabled: bool = setting(
+        False,
+        "Sync WhatsApp's end-to-end encrypted Android backups (msgstore*.crypt15) from "
+        "Google Drive. The 64-hex-digit backup key goes in whatsapp-key beside this file, "
+        "readable only by you.",
+    )
+    drive_folder_id: str = setting(
+        "",
+        "Google Drive folder the WhatsApp backups are uploaded to: the id at the end of "
+        "the folder's URL (https://drive.google.com/drive/folders/<id>).",
+    )
+
+
+@dataclass(frozen=True)
 class Config:
     """The whole config file; each field is a `[section]`."""
 
@@ -120,6 +137,7 @@ class Config:
         default_factory=AndroidMessagesConfig
     )
     google_calendar: GoogleCalendarConfig = field(default_factory=GoogleCalendarConfig)
+    whatsapp: WhatsAppConfig = field(default_factory=WhatsAppConfig)
 
 
 class ConfigError(ValueError):

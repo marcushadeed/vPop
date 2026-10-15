@@ -55,6 +55,11 @@ def anthropic_env_path() -> Path:
     return config_dir() / "anthropic.env"
 
 
+def whatsapp_key_path() -> Path:
+    """The WhatsApp backup key (64 hex digits), beside the config, readable only by its owner."""
+    return config_dir() / "whatsapp-key"
+
+
 def legacy_remote_locations_path() -> Path:
     """Where older versions kept the Drive folder id; it now lives in the config file."""
     return config_dir() / "remote-data-locations.env"
@@ -73,6 +78,11 @@ def db_path() -> Path:
 def android_messages_raw_dir() -> Path:
     """Downloaded Android Messages XML backups, kept as the source of truth for the DB."""
     return data_dir() / "raw" / "android-messages"
+
+
+def whatsapp_raw_dir() -> Path:
+    """The latest downloaded WhatsApp backup and its increments, still encrypted."""
+    return data_dir() / "raw" / "whatsapp"
 
 
 def history_path() -> Path:

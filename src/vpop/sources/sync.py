@@ -27,6 +27,9 @@ def sync(config: Config, *, rebuild: bool = False, offline: bool = False) -> Non
     path = target.with_name(target.name + ".rebuild") if rebuild else target
     if rebuild:
         path.unlink(missing_ok=True)
+        for source in sources:
+            if source.rebuild_warning:
+                log.warning("%s", source.rebuild_warning)
     try:
         conn = db.connect(path)
         try:

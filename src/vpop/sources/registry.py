@@ -4,8 +4,10 @@ from vpop.config import Config
 from vpop.sources.android_messages.source import AndroidMessages
 from vpop.sources.base import Source
 from vpop.sources.google_calendar.source import GoogleCalendar
+from vpop.sources.whatsapp.source import WhatsApp
 
-SOURCES: tuple[type[Source], ...] = (AndroidMessages, GoogleCalendar)
+# WhatsApp comes after the text messages: its chats are named from their threads.
+SOURCES: tuple[type[Source], ...] = (AndroidMessages, GoogleCalendar, WhatsApp)
 
 
 def enabled_sources(config: Config) -> list[Source]:
