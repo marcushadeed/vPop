@@ -6,22 +6,15 @@ Instead of asking you to switch to a new productivity tool, this one sits on top
 
 ## Overview
 
-Most productivity tools require you to move your life into them. This one goes the other direction: it reads from the places your information already lives — messages, notes, calendars, email — and puts an LLM on top of it. What has an API (Google Calendar) is read live while you ask; what doesn't (text message and WhatsApp backups) is copied into a local database.
-
-That gives you two things: the ability to ask questions about your own information in plain language, and a daily briefing assembled from everything the system knows about your day.
+Most productivity tools require you to move your life into them. This one goes the other direction: it reads from the places your information already lives — your messages and calendar — and puts an LLM on top of it, so you can ask questions about your own information in plain language. What has an API (Google Calendar) is read live while you ask; what doesn't (text message and WhatsApp backups) is copied into a local database.
 
 ## Features
 
-Pre-release. What works today is marked ✅; everything else is planned (see the roadmap).
-
-- ✅ **Text messages** — SMS, MMS and RCS from Android, via SMS Backup & Restore backups on Google Drive, imported into a local SQLite database.
-- ✅ **WhatsApp** — Android's end-to-end encrypted backups on Google Drive, decrypted with your backup key and imported into the same database. Chats are named from your text message contacts.
-- ✅ **Natural-language questions** — `vpop` opens a chat in the terminal that puts an LLM (a local Ollama model, or Claude) on top of the database through read-only query tools, so it pulls in only the rows it needs.
-- ✅ **Benchmark** — fixed questions over a synthetic database with known answers, for comparing models and settings.
-- ✅ **Google Calendar** — read live and read-only through the Calendar API while a question is answered; nothing is stored.
-- Other sources — notes, email, reminders, photos of physical journals.
-- Daily report — a morning rundown of your schedule and to-dos (text someone back, charge your AirPods), delivered to your phone, with audio output and a single-button trigger for the car.
-- Sync dashboard — when each source was last pulled, with sync triggers.
+- **Text messages** — SMS, MMS and RCS from Android, via SMS Backup & Restore backups on Google Drive, imported into a local SQLite database.
+- **WhatsApp** — Android's end-to-end encrypted backups on Google Drive, decrypted with your backup key and imported into the same database. Chats are named from your text message contacts.
+- **Google Calendar** — read live and read-only through the Calendar API while a question is answered; nothing is stored.
+- **Natural-language questions** — `vpop` opens a chat in the terminal that puts an LLM (a local Ollama model, or Claude) on top of the database through read-only query tools, so it pulls in only the rows it needs.
+- **Benchmark** — fixed questions over a synthetic database with known answers, for comparing models and settings.
 
 ## Architecture
 
@@ -50,27 +43,6 @@ Code layout (`src/vpop/`):
 - `assistant/` — the toolbox and `run_sql`, the system prompt, the shared tool loop, the Ollama and Claude harnesses, `vpop auth`
 - `ui/` — the chat: rich draws the transcript, prompt_toolkit reads the input
 - `benchmark/` — the synthetic fixture, cases, grader and runner
-
-## Roadmap
-
-### v1.0 — Ingestion and querying (in progress)
-- ✅ Text messages as a source; Obsidian notes next
-- ✅ Google Calendar as a live source
-- ✅ SQLite storage
-- Sync-status dashboard with sync triggers
-- ✅ LLM tool harness for querying the database
-
-### v2.0 — Daily reports
-- Morning job runs on laptop, uploads to local server
-- Report generated server-side and sent to phone
-
-### v2.1 — More sources, audio out
-- ✅ WhatsApp
-- Reminders
-- Out-loud podcast-style report
-
-### v2.2 — Remaining sources
-- Samsung Notes, journal photos
 
 ## Installation
 
@@ -184,7 +156,7 @@ Changing the database schema: add a function to `db.MIGRATIONS` and bump `db.SCH
 
 ## Privacy
 
-This project deliberately trades privacy for convenience — that tradeoff is the premise, not an oversight. Your messages, notes, and calendar data are gathered in one place and passed to an LLM: with Claude, the message rows and calendar events the model asks for are sent to Anthropic. WhatsApp messages are end-to-end encrypted in WhatsApp and in their backups, but vPop decrypts them into its local database with your backup key, so the database (and `~/.config/vpop/whatsapp-key`) deserve the same care as the phone. vPop only ever asks Google for read-only access, so even a model misled by text in an invite or a message can't change your data. Consider carefully where that model runs and what your threat model is before pointing this at your real accounts.
+This project deliberately trades privacy for convenience — that tradeoff is the premise, not an oversight. Your messages and calendar data are gathered in one place and passed to an LLM: with Claude, the message rows and calendar events the model asks for are sent to Anthropic. WhatsApp messages are end-to-end encrypted in WhatsApp and in their backups, but vPop decrypts them into its local database with your backup key, so the database (and `~/.config/vpop/whatsapp-key`) deserve the same care as the phone. vPop only ever asks Google for read-only access, so even a model misled by text in an invite or a message can't change your data. Consider carefully where that model runs and what your threat model is before pointing this at your real accounts.
 
 ## License
 
