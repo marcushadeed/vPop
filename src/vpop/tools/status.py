@@ -5,7 +5,8 @@ from datetime import datetime
 from pathlib import Path
 
 from vpop.db import DatabaseError
-from vpop.sources.base import Source
+from vpop.sources.base import Source, SyncedSource
+from vpop.sources.sync import SyncStatus, read_status
 from vpop.tools.toolbox import Toolset
 
 
@@ -29,6 +30,7 @@ class StatusTools(Toolset):
         lines = [
             f"Now: {datetime.now().astimezone():%Y-%m-%d %H:%M:%S}. vPop's sources:"
         ]
+        statuses = read_status()
         for source in self.sources:
             lines.append(f"- {source.name}: {source.description}")
             for store in source.stores():
@@ -37,4 +39,6 @@ class StatusTools(Toolset):
                 except DatabaseError as exc:
                     summary = str(exc).replace("\n", " ")
                 lines.append(f"  {store.kind}: {summary}")
+            if isinstance(source, SyncedSource):
+                lines.append(f"  {statuses.get(source.name, SyncStatus()).describe()}")
         return "\n".join(lines)

@@ -92,6 +92,22 @@ def build_parser() -> argparse.ArgumentParser:
         "(opens a browser)",
     )
 
+    schedule = commands.add_parser(
+        "schedule", help="keep the data fresh: run vpop sync on a systemd user timer"
+    )
+    schedule_actions = schedule.add_subparsers(dest="schedule_command", required=True)
+    install = schedule_actions.add_parser("install", help="write and start the timer")
+    install.add_argument(
+        "--every",
+        default="hourly",
+        metavar="WHEN",
+        help="a systemd calendar time, e.g. hourly, daily or *:0/30 (default: hourly)",
+    )
+    schedule_actions.add_parser("remove", help="stop the timer and delete it")
+    schedule_actions.add_parser(
+        "status", help="show the next run and how each source's last sync went"
+    )
+
     commands.add_parser(
         "mcp",
         help="serve the read-only tools to Claude over stdio (Claude Code starts this)",
@@ -109,6 +125,7 @@ def main(argv: list[str] | None = None) -> None:
         "sync": sync_command,
         "config": config_command,
         "auth": auth_command,
+        "schedule": schedule_command,
         "mcp": mcp_command,
     }
     if args.command is None:
@@ -137,7 +154,14 @@ def sync_command(args: argparse.Namespace) -> None:
 
     config = load_or_exit()
     try:
-        sync(config, rebuild=args.rebuild, offline=args.offline)
+        # Asking Google for consent opens a browser, so only when someone is at a terminal;
+        # run by the timer, an expired token is an error saying to run `vpop auth google`.
+        sync(
+            config,
+            rebuild=args.rebuild,
+            offline=args.offline,
+            interactive=sys.stdin.isatty(),
+        )
     except (SourceError, DatabaseError) as exc:
         raise SystemExit(f"error: {exc}") from exc
 
@@ -156,6 +180,24 @@ def auth_command(_: argparse.Namespace) -> None:
     except auth.GoogleSetupError as exc:
         raise SystemExit(f"error: {exc}") from exc
     print(f"Google access granted: {auth.names(granted)}")
+
+
+def schedule_command(args: argparse.Namespace) -> None:
+    """Install, remove or show the sync timer."""
+    from vpop import schedule  # pylint: disable=import-outside-toplevel
+
+    try:
+        if args.schedule_command == "install":
+            directory = schedule.install(args.every)
+            print(f"vpop sync now runs {args.every} (units in {directory})")
+            print("check it with: vpop schedule status")
+        elif args.schedule_command == "remove":
+            removed = schedule.remove()
+            print("removed the sync timer" if removed else "no sync timer to remove")
+        else:
+            print(schedule.status())
+    except schedule.ScheduleError as exc:
+        raise SystemExit(f"error: {exc}") from exc
 
 
 def mcp_command(_: argparse.Namespace) -> None:

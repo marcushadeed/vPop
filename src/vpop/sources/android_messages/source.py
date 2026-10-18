@@ -41,12 +41,17 @@ class AndroidMessages(SyncedSource):
     def enabled(self) -> bool:
         return True
 
-    def download(self, google_scopes: Sequence[str]) -> None:
+    def download(self, google_scopes: Sequence[str], *, interactive: bool) -> None:
         # Imported here so the parser and Google client libraries load only for a sync.
         # pylint: disable=import-outside-toplevel
         from vpop.sources.android_messages import sync
 
-        sync.download(self.config, android_messages_raw_dir(), google_scopes)
+        sync.download(
+            self.config,
+            android_messages_raw_dir(),
+            google_scopes,
+            interactive=interactive,
+        )
 
     def import_raw(self, conn: sqlite3.Connection) -> str:
         # pylint: disable=import-outside-toplevel

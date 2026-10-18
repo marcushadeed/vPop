@@ -128,10 +128,12 @@ def import_latest(conn: sqlite3.Connection, raw_dir: Path) -> tuple[int, int]:
     return imported, added
 
 
-def download(config: Config, raw_dir: Path, google_scopes: Sequence[str]) -> None:
+def download(
+    config: Config, raw_dir: Path, google_scopes: Sequence[str], *, interactive: bool
+) -> None:
     """
     Fetch the latest backup set from Drive into `raw_dir`. `google_scopes` are the scopes
-    every enabled source needs, so one consent prompt covers them all.
+    every enabled source needs, so one consent prompt covers them all, if `interactive`.
     """
     # Imported here so the Google client libraries load only when they're needed.
     # pylint: disable=import-outside-toplevel
@@ -139,6 +141,6 @@ def download(config: Config, raw_dir: Path, google_scopes: Sequence[str]) -> Non
     from vpop.sources.whatsapp.fetch import download_latest
 
     folder_id = drive_folder_id(config)
-    service = get_drive_service(google_scopes)
+    service = get_drive_service(google_scopes, interactive=interactive)
     names = download_latest(service, folder_id, raw_dir)
     log.info("downloaded %d new WhatsApp backup file(s)", len(names))

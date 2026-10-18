@@ -15,12 +15,16 @@ from vpop.sources.google.auth import get_credentials
 DriveService = Any
 
 
-def get_drive_service(scopes: Sequence[str] = (DRIVE_READONLY,)) -> DriveService:
+def get_drive_service(
+    scopes: Sequence[str] = (DRIVE_READONLY,), *, interactive: bool = True
+) -> DriveService:
     """
     The Drive v3 API client, authorized with the user's credentials. `scopes` should be
-    every scope the enabled sources need, so one consent prompt covers all of them.
+    every scope the enabled sources need, so one consent prompt covers all of them; without
+    `interactive`, a consent that's needed is an error instead of a browser window.
     """
-    return build("drive", "v3", credentials=get_credentials(scopes))
+    creds = get_credentials(scopes, interactive=interactive)
+    return build("drive", "v3", credentials=creds)
 
 
 def escape_query_value(value: str) -> str:

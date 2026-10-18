@@ -78,3 +78,18 @@ def android_messages_raw_dir() -> Path:
 def whatsapp_raw_dir() -> Path:
     """The latest downloaded WhatsApp backup and its increments, still encrypted."""
     return data_dir() / "raw" / "whatsapp"
+
+
+def sync_status_path() -> Path:
+    """Each synced source's last sync attempt, success and error, written by `vpop sync`."""
+    return data_dir() / "sync-status.json"
+
+
+def sync_lock_path() -> Path:
+    """Locked while `vpop sync` runs, so two syncs never run at once."""
+    return data_dir() / "sync.lock"
+
+
+def systemd_user_dir() -> Path:
+    """Where systemd looks for the user's own units, such as `vpop schedule`'s timer."""
+    return xdg_base("XDG_CONFIG_HOME", Path.home() / ".config") / "systemd" / "user"

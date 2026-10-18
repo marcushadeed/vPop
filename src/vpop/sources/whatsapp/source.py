@@ -40,12 +40,14 @@ class WhatsApp(SyncedSource):
     def enabled(self) -> bool:
         return self.config.whatsapp.enabled
 
-    def download(self, google_scopes: Sequence[str]) -> None:
+    def download(self, google_scopes: Sequence[str], *, interactive: bool) -> None:
         # Imported here so the Google and crypto libraries load only for a sync.
         # pylint: disable=import-outside-toplevel
         from vpop.sources.whatsapp import sync
 
-        sync.download(self.config, whatsapp_raw_dir(), google_scopes)
+        sync.download(
+            self.config, whatsapp_raw_dir(), google_scopes, interactive=interactive
+        )
 
     def import_raw(self, conn: sqlite3.Connection) -> str:
         # pylint: disable=import-outside-toplevel

@@ -7,6 +7,7 @@ from helpers import build_db, make_message
 from vpop.config import Config, WhatsAppConfig
 from vpop.paths import db_path
 from vpop.sources.registry import enabled_sources
+from vpop.sources.sync import SyncStatus, write_status
 from vpop.tools.status import StatusTools
 
 BOTH = Config(whatsapp=WhatsAppConfig(enabled=True))
@@ -32,9 +33,33 @@ def test_each_source_says_what_it_holds() -> None:
             "phone, as `text:` conversations"
         ),
         "  messages: 2 messages, 2026-08-01 09:00:00 → 2026-10-17 21:30:00",
+        "  no sync recorded; run `vpop sync`",
         "- whatsapp: WhatsApp messages from an Android phone, as `whatsapp:` conversations",
         "  messages: no messages",
+        "  no sync recorded; run `vpop sync`",
     ]
+
+
+def test_each_source_says_how_its_last_sync_went() -> None:
+    build_db(db_path(), [make_message()])
+    write_status(
+        {
+            "android_messages": SyncStatus(
+                "2026-10-18 10:00:00", "2026-10-18 10:00:00", None
+            ),
+            "whatsapp": SyncStatus(
+                "2026-10-18 10:00:00",
+                "2026-10-17 09:00:00",
+                "no WhatsApp backup key.",
+            ),
+        }
+    )
+    lines = status()
+    assert lines[3] == "  last synced 2026-10-18 10:00:00"
+    assert lines[6] == (
+        "  last sync failed at 2026-10-18 10:00:00: no WhatsApp backup key. "
+        "(last success: 2026-10-17 09:00:00)"
+    )
 
 
 def test_only_enabled_sources_are_listed() -> None:

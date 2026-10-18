@@ -85,7 +85,9 @@ def test_failed_rebuild_keeps_the_old_database(monkeypatch: pytest.MonkeyPatch) 
 def test_sync_downloads_unless_offline(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[Path] = []
     monkeypatch.setattr(
-        sync_module, "download", lambda _, raw, scopes: calls.append(raw)
+        sync_module,
+        "download",
+        lambda _, raw, scopes, interactive: calls.append(raw),
     )
     sync(Config())
     sync(Config(), offline=True)

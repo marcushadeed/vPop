@@ -64,10 +64,11 @@ class SyncedSource(Source):
     rebuild_warning: ClassVar[str] = ""
 
     @abstractmethod
-    def download(self, google_scopes: Sequence[str]) -> None:
+    def download(self, google_scopes: Sequence[str], *, interactive: bool) -> None:
         """
         Fetch new raw files. `google_scopes` are the scopes every enabled source needs, for
-        a source that reads Google: asking for all of them makes one consent prompt.
+        a source that reads Google: asking for all of them makes one consent prompt. Without
+        `interactive` (no one at a terminal), it must not open a browser to ask.
         """
 
     @abstractmethod
