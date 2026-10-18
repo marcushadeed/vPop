@@ -1,6 +1,6 @@
 {
   "name": "vpop",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Ask Claude about your own text messages and WhatsApp, through read-only tools over a local database synced from your phone's backups.",
   "author": {
     "name": "Marcus Hadeed"

@@ -1,7 +1,7 @@
 [project]
 name = "vpop"
-version = "1.0.0"
-description = "Value Productivity Over Privacy. Give an LLM access to all your data and enjoy your personal assistant!"
+version = "2.0.0"
+description = "Value Productivity Over Privacy. Give Claude read-only access to your own messages."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]

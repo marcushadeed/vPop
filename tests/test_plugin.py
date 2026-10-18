@@ -94,3 +94,9 @@ def test_plugin_manifests() -> None:
     assert plugin["mcpServers"] == {"vpop": {"command": "vpop", "args": ["mcp"]}}
     assert [entry["name"] for entry in marketplace["plugins"]] == ["vpop"]
     assert marketplace["plugins"][0]["source"] == "./"
+
+
+def test_readme_tools_table_lists_every_tool() -> None:
+    readme = (ROOT / "README.md").read_text()
+    table = re.findall(r"^\| `(\w+)` \|", readme, re.MULTILINE)
+    assert table == list(tools())
