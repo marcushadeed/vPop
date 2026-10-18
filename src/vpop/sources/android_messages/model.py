@@ -1,5 +1,5 @@
 """
-The message model shared by the importer, the query tools and the benchmark: one row of the
+The message model shared by the importer and the query tools: one row of the
 `messages` table, and how phone numbers and conversations are keyed.
 """
 

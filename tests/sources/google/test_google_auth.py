@@ -9,16 +9,17 @@ import pytest
 from vpop import cli
 from vpop.config import Config
 from vpop.paths import oauth_credentials_path, oauth_token_path
-from vpop.sources.google import CALENDAR_READONLY, DRIVE_READONLY, auth
+from vpop.sources.google import DRIVE_READONLY, auth
 from vpop.sources.google.auth import (
     GoogleAuthRequired,
     GoogleSetupError,
     get_credentials,
     granted_scopes,
-    status_line,
 )
 from vpop.sources.registry import google_scopes
 
+# A second scope, as a token from vPop 1.x holds: it read Google Calendar too.
+CALENDAR_READONLY = "https://www.googleapis.com/auth/calendar.readonly"
 BOTH = sorted([CALENDAR_READONLY, DRIVE_READONLY])
 
 
@@ -147,14 +148,12 @@ def test_unticked_scope_is_an_error(flow: type[FakeFlow]) -> None:
         get_credentials(BOTH)
 
 
-def test_status_line() -> None:
-    assert status_line([DRIVE_READONLY]) == (
-        "google: no access yet; missing drive.readonly, run `vpop auth google`"
-    )
+def test_token_from_1x_with_the_calendar_scope_still_works(
+    flow: type[FakeFlow],
+) -> None:
     write_token(BOTH)
-    assert status_line([DRIVE_READONLY]) == (
-        "google: calendar.readonly, drive.readonly granted"
-    )
+    assert get_credentials([DRIVE_READONLY], interactive=False).token == "access"
+    assert flow.requested == []
 
 
 def test_scopes_of_the_enabled_sources() -> None:

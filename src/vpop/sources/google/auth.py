@@ -6,9 +6,9 @@ token. The token records the scopes Google actually granted; when a source needs
 lacks, consent is asked for every scope at once (those already granted plus the new ones), so
 adding a source never drops another's access.
 
-`vpop sync` may open a browser for consent (`interactive=True`). Tools that run while a
-question is answered must not, so they ask with `interactive=False` and get a
-`GoogleAuthRequired` telling the user to run `vpop auth google` instead.
+`vpop sync` at a terminal may open a browser for consent (`interactive=True`). Run on a
+timer it must not, so it asks with `interactive=False` and gets a `GoogleAuthRequired`
+telling the user to run `vpop auth google` instead.
 """
 
 import json
@@ -44,14 +44,13 @@ def missing_client_message(path: Path) -> str:
     return (
         f"no Google OAuth client at {path}.\n"
         "Create one in Google Cloud Console (APIs & Services → Credentials → Create "
-        "credentials → OAuth client ID → Desktop app), enable the APIs vPop reads for the "
-        "project (Google Drive API for message backups, Google Calendar API for the "
-        f"calendar), download the client's JSON, and save it as {path}."
+        "credentials → OAuth client ID → Desktop app), enable the Google Drive API for the "
+        f"project, download the client's JSON, and save it as {path}."
     )
 
 
 def names(scopes: Iterable[str]) -> str:
-    """Scopes by their short names, e.g. `calendar.readonly, drive.readonly`."""
+    """Scopes by their short names, e.g. `drive.readonly`."""
     return ", ".join(sorted(scope_name(scope) for scope in scopes)) or "none"
 
 
@@ -148,16 +147,3 @@ def authorize(scopes: Sequence[str]) -> set[str]:
     """`vpop auth google`: ask for consent to `scopes` (and those already granted)."""
     consent(sorted(granted_scopes() | set(scopes)))
     return granted_scopes()
-
-
-def status_line(scopes: Sequence[str]) -> str:
-    """A line for `vpop auth status`: the scopes granted, and any the sources still need."""
-    granted = granted_scopes()
-    if not granted:
-        line = "google: no access yet"
-    else:
-        line = f"google: {names(granted)} granted"
-    missing = set(scopes) - granted
-    if missing:
-        line += f"; missing {names(missing)}, run `vpop auth google`"
-    return line

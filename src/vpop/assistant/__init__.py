@@ -1,1 +1,1 @@
-"""LLM assistant over the local vpop database."""
+"""The read-only query tools over the local vpop database."""

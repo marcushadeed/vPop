@@ -26,7 +26,7 @@ class SourceUnavailable(SourceError):
 class Source(ABC):
     """A place the user's data lives, and how the assistant reads it."""
 
-    # The source's config section, e.g. "google_calendar".
+    # The source's config section, e.g. "android_messages".
     name: ClassVar[str]
     # The Google OAuth scopes it needs, if it reads a Google API.
     google_scopes: ClassVar[tuple[str, ...]] = ()

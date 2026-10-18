@@ -9,77 +9,24 @@ exists yet.
 
 import logging
 import tomllib
-from dataclasses import Field, dataclass, field, fields
+from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import Any, Literal, get_args, get_origin, get_type_hints
+from typing import Any, get_type_hints
 
 from vpop.fsutil import atomic_write
 from vpop.paths import config_path
 
 log = logging.getLogger(__name__)
 
-Think = Literal["on", "off", "default"]
-Effort = Literal["low", "medium", "high", "xhigh", "max"]
-THINK_CHOICES: tuple[str, ...] = get_args(Think)
-EFFORT_CHOICES: tuple[str, ...] = get_args(Effort)
+# Sections of older versions, for the chat and Google Calendar. A file that still has them
+# loads, with a warning to delete them.
+REMOVED_SECTIONS = ("assistant", "ollama", "claude", "google_calendar")
 
 
-def setting(default: Any, doc: str, minimum: int | None = None) -> Any:
-    """
-    A setting's default, the comment written above it in a generated file, and optionally
-    the smallest value it accepts.
-    """
+def setting(default: Any, doc: str) -> Any:
+    """A setting's default, and the comment written above it in a generated file."""
     # Called in class bodies, where dataclass picks the field up.
-    return field(  # pylint: disable=invalid-field-call
-        default=default, metadata={"doc": doc, "minimum": minimum}
-    )
-
-
-@dataclass(frozen=True)
-class AssistantConfig:
-    """The `[assistant]` section: which model answers questions."""
-
-    local_model: bool = setting(
-        True,
-        "true: a local Ollama model, nothing leaves the machine. "
-        "false: Claude over the Anthropic API.",
-    )
-    max_rounds: int = setting(
-        12, "Tool-call rounds allowed per question before giving up.", minimum=1
-    )
-
-
-@dataclass(frozen=True)
-class OllamaConfig:
-    """The `[ollama]` section, used when `local_model = true`."""
-
-    model: str = setting("qwen3:8b", "Any Ollama model with tool support.")
-    num_ctx: int = setting(
-        16384,
-        "Context window in tokens. Ollama's default is small, and a few tool results "
-        "fill it quickly.",
-        minimum=2048,
-    )
-    think: Think = setting(
-        "default",
-        'Whether thinking models reason before each step: "on", "off" or "default" (the '
-        "model's own). Thinking is more accurate but much slower on CPU.",
-    )
-
-
-@dataclass(frozen=True)
-class ClaudeConfig:
-    """The `[claude]` section, used when `local_model = false`."""
-
-    model: str = setting(
-        "claude-sonnet-5-5",
-        'Claude model id, e.g. "claude-sonnet-5-5" or "claude-opus-5-5" (smarter, 2x '
-        "the price).",
-    )
-    max_tokens: int = setting(16000, "Output token cap per model response.", minimum=1)
-    effort: Effort = setting(
-        "medium", 'Reasoning effort: "low", "medium", "high", "xhigh" or "max".'
-    )
+    return field(default=default, metadata={"doc": doc})  # pylint: disable=invalid-field-call
 
 
 @dataclass(frozen=True)
@@ -90,22 +37,6 @@ class AndroidMessagesConfig:
         "",
         "Google Drive folder that SMS Backup & Restore uploads to: the id at the end of "
         "the folder's URL (https://drive.google.com/drive/folders/<id>).",
-    )
-
-
-@dataclass(frozen=True)
-class GoogleCalendarConfig:
-    """The `[google_calendar]` section: reading Google Calendar while answering."""
-
-    enabled: bool = setting(
-        False,
-        "Let vPop read your Google Calendar while answering: read-only and live, nothing "
-        "is stored. Uses the same Google OAuth client as the message backups; run "
-        "`vpop auth google` after turning it on.",
-    )
-    exclude_calendars: tuple[str, ...] = setting(
-        (),
-        'Calendars to leave out, by name or id, e.g. ["Holidays in United States"].',
     )
 
 
@@ -130,13 +61,9 @@ class WhatsAppConfig:
 class Config:
     """The whole config file; each field is a `[section]`."""
 
-    assistant: AssistantConfig = field(default_factory=AssistantConfig)
-    ollama: OllamaConfig = field(default_factory=OllamaConfig)
-    claude: ClaudeConfig = field(default_factory=ClaudeConfig)
     android_messages: AndroidMessagesConfig = field(
         default_factory=AndroidMessagesConfig
     )
-    google_calendar: GoogleCalendarConfig = field(default_factory=GoogleCalendarConfig)
     whatsapp: WhatsAppConfig = field(default_factory=WhatsAppConfig)
 
 
@@ -144,43 +71,10 @@ class ConfigError(ValueError):
     """The config file can't be parsed or has a bad setting."""
 
 
-def type_name(hint: Any) -> str:
-    """How a setting's type is named in an error message."""
-    if get_origin(hint) is Literal:
-        return "one of " + ", ".join(get_args(hint))
-    if get_origin(hint) is tuple:
-        return "a list of strings"
-    return str(hint.__name__)
-
-
-def check_value(name: str, spec: Field[Any], hint: Any, value: Any) -> Any:
-    """
-    Return `value` if it suits the setting (an int is fine for a float, a list of strings
-    becomes a tuple), else raise.
-    """
-    if get_origin(hint) is Literal:
-        if value not in get_args(hint):
-            raise ConfigError(f"{name} must be {type_name(hint)}, not {value!r}")
-        return value
-    if get_origin(hint) is tuple:
-        if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
-            raise ConfigError(f"{name} must be {type_name(hint)}, not {value!r}")
-        return tuple(value)
-    # bool is a subclass of int, so `num_ctx = true` would otherwise pass.
-    if isinstance(value, bool) and hint is not bool:
-        ok = False
-    elif hint is float:
-        ok = isinstance(value, int | float)
-        value = float(value) if ok else value
-    else:
-        ok = isinstance(value, hint)
-    if not ok:
-        raise ConfigError(
-            f"{name} must be {type_name(hint)}, not {type(value).__name__}"
-        )
-    minimum = spec.metadata.get("minimum")
-    if minimum is not None and value < minimum:
-        raise ConfigError(f"{name} must be at least {minimum}, not {value}")
+def check_value(name: str, hint: type, value: Any) -> Any:
+    """Return `value` if it suits the setting's type, else raise."""
+    if not isinstance(value, hint):
+        raise ConfigError(f"{name} must be {hint.__name__}, not {type(value).__name__}")
     return value
 
 
@@ -196,7 +90,7 @@ def build_section(cls: type, name: str, values: Any) -> Any:
             f"unknown setting(s) in [{name}]: {', '.join(sorted(unknown))}"
         )
     checked = {
-        key: check_value(f"{name}.{key}", specs[key], hints[key], value)
+        key: check_value(f"{name}.{key}", hints[key], value)
         for key, value in values.items()
     }
     return cls(**checked)
@@ -209,12 +103,22 @@ def parse_config(text: str) -> Config:
     except tomllib.TOMLDecodeError as exc:
         raise ConfigError(f"invalid TOML: {exc}") from exc
     sections = {f.name for f in fields(Config)}
-    unknown = set(data) - sections
+    removed = sorted(set(data) & set(REMOVED_SECTIONS))
+    if removed:
+        log.warning(
+            "the config's %s section(s) are no longer used; delete them",
+            ", ".join(f"[{name}]" for name in removed),
+        )
+    unknown = set(data) - sections - set(REMOVED_SECTIONS)
     if unknown:
         raise ConfigError(f"unknown section(s): {', '.join(sorted(unknown))}")
     hints = get_type_hints(Config)
     return Config(
-        **{name: build_section(hints[name], name, data[name]) for name in data}
+        **{
+            name: build_section(hints[name], name, values)
+            for name, values in data.items()
+            if name in sections
+        }
     )
 
 
@@ -242,13 +146,9 @@ def toml_value(value: Any) -> str:
     """A TOML literal for a setting value."""
     if isinstance(value, bool):
         return "true" if value else "false"
-    if isinstance(value, int | float):
-        return repr(value)
     if isinstance(value, str):
         escaped = value.replace("\\", "\\\\").replace('"', '\\"')
         return f'"{escaped}"'
-    if isinstance(value, tuple | list):
-        return "[" + ", ".join(toml_value(item) for item in value) + "]"
     raise TypeError(f"can't write {type(value).__name__} to TOML")
 
 

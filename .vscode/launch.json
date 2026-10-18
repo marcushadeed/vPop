@@ -5,11 +5,11 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python Debugger: vpop ask",
+            "name": "Python Debugger: vpop sync --offline",
             "type": "debugpy",
             "request": "launch",
             "module": "vpop",
-            "args": ["ask"],
+            "args": ["sync", "--offline"],
             "console": "integratedTerminal",
             "python": "${workspaceFolder}/.venv/bin/python"
         }

@@ -84,39 +84,3 @@ def test_import_tracking_notices_changed_files(tmp_path: Path) -> None:
         assert db.already_imported(conn, "src", backup)
         backup.write_text("<smses>changed</smses>")
         assert not db.already_imported(conn, "src", backup)
-
-
-def test_message_summary_counts_messages_and_finds_the_newest(tmp_path: Path) -> None:
-    path = build_db(
-        tmp_path / "vpop.db",
-        [
-            make_message(body="a", timestamp="2026-08-01 09:00:00"),
-            make_message(body="b", timestamp="2026-08-03 21:15:00"),
-            make_message(
-                thread_key="+13015550000",
-                sender="+13015550000",
-                body="c",
-                timestamp="2026-08-02 12:00:00",
-            ),
-        ],
-    )
-    assert db.message_summary(path) == (3, "2026-08-03 21:15:00")
-
-
-def test_message_summary_counts_whatsapp_too(tmp_path: Path) -> None:
-    path = build_db(
-        tmp_path / "vpop.db", [make_message(timestamp="2026-08-01 09:00:00")]
-    )
-    with closing(sqlite3.connect(path)) as conn:
-        conn.execute(
-            "INSERT INTO whatsapp_chats (chat_key, label, is_group, message_count, first, "
-            "last) VALUES (?, '', 0, 2, '2026-08-01 00:00:00', '2026-09-01 08:00:00')",
-            (SAM,),
-        )
-        conn.commit()
-    assert db.message_summary(path) == (3, "2026-09-01 08:00:00")
-
-
-def test_message_summary_of_an_empty_database(tmp_path: Path) -> None:
-    path = build_db(tmp_path / "vpop.db", [])
-    assert db.message_summary(path) == (0, None)

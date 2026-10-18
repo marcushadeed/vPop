@@ -104,7 +104,7 @@ def test_folder_id_moves_from_legacy_file(caplog: pytest.LogCaptureFixture) -> N
     legacy.write_text("MESSAGES_BACKUP_FOLDER_ID='legacy-id'\n")
     assert drive_folder_id(load_config()) == "legacy-id"
     assert load_config().android_messages.drive_folder_id == "legacy-id"
-    assert "# true: a local Ollama model" in config_path().read_text()
+    assert "# Sync WhatsApp's end-to-end encrypted" in config_path().read_text()
     assert "moved the Drive folder id" in caplog.text
 
 

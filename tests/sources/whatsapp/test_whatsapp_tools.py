@@ -7,9 +7,6 @@ import pytest
 from helpers import SAM, build_db, epoch, make_message
 
 from vpop import db
-from vpop.assistant.session import build_toolbox
-from vpop.config import Config, WhatsAppConfig
-from vpop.paths import db_path
 from vpop.sources.android_messages.model import Direction
 from vpop.sources.whatsapp.model import WhatsAppMessage
 from vpop.sources.whatsapp.store import insert_messages, refresh_chats
@@ -125,22 +122,3 @@ def test_read_chat(tools: WhatsAppTools) -> None:
         "2026-09-02 18:06:00 | 777@lid | who's that",
     ]
     assert "No WhatsApp messages in chat" in tools.read_chat("+19999999999")
-
-
-def test_toolbox_has_whatsapp_text_and_sql_tools(db_file: Path) -> None:
-    db_path().parent.mkdir(parents=True, exist_ok=True)
-    db_file.rename(db_path())
-    box = build_toolbox(Config(whatsapp=WhatsAppConfig(enabled=True)), db_path())
-    assert box.names == [
-        "find_threads",
-        "search_messages",
-        "read_thread",
-        "find_chats",
-        "search_whatsapp",
-        "read_chat",
-        "run_sql",
-    ]
-    assert "WhatsApp messages" in box.system_prompt
-    assert "Book club" in box.call(
-        "run_sql", {"query": "SELECT label FROM whatsapp_chats WHERE is_group"}
-    )

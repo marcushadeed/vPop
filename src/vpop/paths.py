@@ -2,9 +2,9 @@
 Every file location vpop uses, in one place.
 
 Settings and secrets live in the config directory (`$XDG_CONFIG_HOME/vpop`, else
-`~/.config/vpop`); downloaded backups, the database, chat history and benchmark results live
-in the data directory (`$XDG_DATA_HOME/vpop`, else `~/.local/share/vpop`). These functions
-only compute paths: whoever writes a file creates its directory.
+`~/.config/vpop`); downloaded backups, the database and sync state live in the data
+directory (`$XDG_DATA_HOME/vpop`, else `~/.local/share/vpop`). These functions only compute
+paths: whoever writes a file creates its directory.
 """
 
 import os
@@ -50,11 +50,6 @@ def oauth_token_path() -> Path:
     return config_dir() / "oauth-token.json"
 
 
-def anthropic_env_path() -> Path:
-    """Optional `anthropic.env` beside the config file, holding `ANTHROPIC_API_KEY=...`."""
-    return config_dir() / "anthropic.env"
-
-
 def whatsapp_key_path() -> Path:
     """The WhatsApp backup key (64 hex digits), beside the config, readable only by its owner."""
     return config_dir() / "whatsapp-key"
@@ -83,13 +78,3 @@ def android_messages_raw_dir() -> Path:
 def whatsapp_raw_dir() -> Path:
     """The latest downloaded WhatsApp backup and its increments, still encrypted."""
     return data_dir() / "raw" / "whatsapp"
-
-
-def history_path() -> Path:
-    """Questions typed into the chat, recalled with the up and down arrows."""
-    return data_dir() / "history"
-
-
-def bench_results_dir() -> Path:
-    """Where `vpop bench` writes its result files by default."""
-    return data_dir() / "benchmarks"

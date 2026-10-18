@@ -6,7 +6,6 @@ The scope names live here, not in `auth`, so naming them doesn't load the Google
 """
 
 DRIVE_READONLY = "https://www.googleapis.com/auth/drive.readonly"
-CALENDAR_READONLY = "https://www.googleapis.com/auth/calendar.readonly"
 
 
 def scope_name(scope: str) -> str:

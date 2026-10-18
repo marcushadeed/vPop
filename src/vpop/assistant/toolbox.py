@@ -1,14 +1,13 @@
 """
-The machinery every set of query tools shares, and the `Toolbox` the harnesses use.
+The machinery every set of query tools shares, and the `Toolbox` that serves them.
 
-Each source contributes a `Toolset`: a class whose tool methods return compact text rather
-than JSON, so tool results stay small, plus a section of the system prompt. Result sets are
-capped with a trailing `… N more` line saying how to page, and no result is longer than
-`MAX_RESULT_CHARS`. The tool definitions the models see are built from the methods' signatures
-and docstrings, so the docstrings are written for the model.
+A `Toolset` is a class whose tool methods return compact text rather than JSON, so tool
+results stay small. Result sets are capped with a trailing `… N more` line saying how to
+page, and no result is longer than `MAX_RESULT_CHARS`. The tool definitions the model sees
+are built from the methods' signatures and docstrings, so the docstrings are written for the
+model.
 
-A `Toolbox` gathers the toolsets for one conversation, routes calls to them and assembles the
-system prompt from their sections.
+A `Toolbox` gathers the toolsets and routes calls to them.
 """
 
 import calendar
@@ -21,7 +20,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, ClassVar, Union, get_args, get_origin, get_type_hints
 
-from vpop.assistant.prompt import assemble
 from vpop.db import DatabaseError, connect_readonly
 
 BODY_CHARS = 300
@@ -212,28 +210,20 @@ class DatabaseToolset(Toolset):
 
 
 class Toolbox:
-    """
-    The tools for one conversation. `db` is the database the toolsets read, or None when
-    only live sources are available.
-    """
+    """Every tool, from all the toolsets."""
 
-    def __init__(self, toolsets: Sequence[Toolset], db: Path | None = None) -> None:
+    def __init__(self, toolsets: Sequence[Toolset]) -> None:
         self.toolsets = list(toolsets)
-        self.db = db
         self.functions: dict[str, Callable[..., str]] = {}
         for toolset in self.toolsets:
             for name, func in toolset.functions.items():
                 if name in self.functions:
                     raise ValueError(f"two toolsets define a tool named {name!r}")
                 self.functions[name] = func
-        self.system_prompt = assemble(
-            [toolset.data for toolset in self.toolsets],
-            [toolset.prompt for toolset in self.toolsets],
-        )
 
     @property
     def names(self) -> list[str]:
-        """Every tool's name, in the order the models see them."""
+        """Every tool's name, in the order the model sees them."""
         return list(self.functions)
 
     def schemas(self) -> list[dict[str, Any]]:

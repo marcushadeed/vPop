@@ -8,14 +8,10 @@ license-files = ["LICENSE"]
 authors = [{ name = "Marcus Hadeed" }]
 requires-python = ">=3.12"
 dependencies = [
-    "anthropic>=1.8.0",
     "cryptography>=50.0.0",
     "google-api-python-client>=2.198.0",
     "google-auth-oauthlib>=1.4.0",
     "lxml>=6.1.2",
-    "ollama>=0.6.2",
-    "prompt-toolkit>=3.0.53",
-    "rich>=15.0.0",
 ]
 
 [project.scripts]
@@ -30,7 +26,6 @@ where = ["src"]
 
 [dependency-groups]
 dev = [
-    "httpx2>=2.13.1",
     "lxml-stubs>=0.5.1",
     "mypy>=2.3.1",
     "pylint>=4.0.7",
@@ -45,9 +40,8 @@ testpaths = ["tests"]
 extend-select = ["I", "UP", "B", "SIM", "RUF"]
 # Message times are local wall-clock strings, so naive datetimes are intended.
 ignore = ["DTZ001"]
-# Curly quotes appear in real message text; × is the matrix symbol in benchmark output; › is
-# the chat's prompt; – joins the start and end of a calendar event.
-allowed-confusables = ["‘", "’", "“", "”", "×", "›", "–"]
+# Curly quotes appear in real message text.
+allowed-confusables = ["‘", "’", "“", "”"]
 
 [tool.pylint.main]
 extension-pkg-allow-list = ["lxml"]
