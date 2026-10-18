@@ -92,6 +92,11 @@ def build_parser() -> argparse.ArgumentParser:
         "(opens a browser)",
     )
 
+    commands.add_parser(
+        "mcp",
+        help="serve the read-only tools to Claude over stdio (Claude Code starts this)",
+    )
+
     return parser
 
 
@@ -104,6 +109,7 @@ def main(argv: list[str] | None = None) -> None:
         "sync": sync_command,
         "config": config_command,
         "auth": auth_command,
+        "mcp": mcp_command,
     }
     if args.command is None:
         parser.print_help()
@@ -150,6 +156,13 @@ def auth_command(_: argparse.Namespace) -> None:
     except auth.GoogleSetupError as exc:
         raise SystemExit(f"error: {exc}") from exc
     print(f"Google access granted: {auth.names(granted)}")
+
+
+def mcp_command(_: argparse.Namespace) -> None:
+    """Serve the tools over stdio until Claude closes the connection."""
+    from vpop.tools.server import serve  # pylint: disable=import-outside-toplevel
+
+    serve(load_or_exit())
 
 
 def config_command(args: argparse.Namespace) -> None:

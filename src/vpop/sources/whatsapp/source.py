@@ -28,6 +28,9 @@ class WhatsApp(SyncedSource):
     """WhatsApp messages from an Android phone. Off unless the config enables it."""
 
     name = "whatsapp"
+    description = (
+        "WhatsApp messages from an Android phone, as `whatsapp:` conversations"
+    )
     google_scopes = (DRIVE_READONLY,)
     rebuild_warning = (
         "WhatsApp keeps only its latest backup on disk, so the rebuilt database won't have "

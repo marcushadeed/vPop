@@ -39,6 +39,8 @@ class Source(ABC):
 
     # The source's config section, e.g. "android_messages".
     name: ClassVar[str]
+    # What it holds, for the model: a line of the MCP server's instructions.
+    description: ClassVar[str]
     # The Google OAuth scopes it needs, if it reads a Google API.
     google_scopes: ClassVar[tuple[str, ...]] = ()
 

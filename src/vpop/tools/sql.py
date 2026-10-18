@@ -34,7 +34,8 @@ class SqlTools(DatabaseToolset):
 
         Args:
             query: A single SQLite SELECT or WITH statement over the messages, threads,
-                whatsapp_messages and whatsapp_chats tables.
+                whatsapp_messages and whatsapp_chats tables (the vpop skill documents
+                their columns).
             limit: Maximum number of rows to return.
         """
         statement = query.strip()

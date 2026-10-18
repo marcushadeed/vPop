@@ -104,7 +104,9 @@ class MessageStore(Store):  # pylint: disable=too-many-instance-attributes
             count, first, last = conn.execute(
                 f"SELECT COUNT(*), MIN(timestamp), MAX(timestamp) FROM {self.table}"
             ).fetchone()
-        return f"{count:,} messages, {first} → {last}" if count else "no messages"
+        if not count:
+            return "no messages"
+        return f"{count:,} message{'' if count == 1 else 's'}, {first} → {last}"
 
     def has_messages(self, conn: Connection) -> bool:
         """Whether a sync has imported any of this source's messages."""

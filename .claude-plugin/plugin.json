@@ -1,0 +1,18 @@
+{
+  "name": "vpop",
+  "version": "1.0.0",
+  "description": "Ask Claude about your own text messages and WhatsApp, through read-only tools over a local database synced from your phone's backups.",
+  "author": {
+    "name": "Marcus Hadeed"
+  },
+  "homepage": "https://github.com/marcushadeed/vPop",
+  "repository": "https://github.com/marcushadeed/vPop",
+  "license": "Apache-2.0",
+  "keywords": ["messages", "whatsapp", "sms", "personal-data", "read-only"],
+  "mcpServers": {
+    "vpop": {
+      "command": "vpop",
+      "args": ["mcp"]
+    }
+  }
+}

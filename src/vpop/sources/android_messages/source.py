@@ -35,6 +35,7 @@ class AndroidMessages(SyncedSource):
     """
 
     name = "android_messages"
+    description = "text messages (SMS, MMS and RCS) from an Android phone, as `text:` conversations"
     google_scopes = (DRIVE_READONLY,)
 
     def enabled(self) -> bool:

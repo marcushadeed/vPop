@@ -1,0 +1,14 @@
+{
+  "name": "vpop",
+  "description": "vPop: your own messages, served read-only to Claude.",
+  "owner": {
+    "name": "Marcus Hadeed"
+  },
+  "plugins": [
+    {
+      "name": "vpop",
+      "source": "./",
+      "description": "Ask Claude about your own text messages and WhatsApp, through read-only tools over a local database synced from your phone's backups."
+    }
+  ]
+}

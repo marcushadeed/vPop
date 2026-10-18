@@ -25,9 +25,9 @@ from vpop.db import DatabaseError, connect_readonly
 BODY_CHARS = 300
 LABEL_CHARS = 200
 MAX_LIMIT = 500
-# About 3k tokens: big enough for a page of messages, small enough that one call can't fill a
-# local model's context window.
-MAX_RESULT_CHARS = 12_000
+# About 6k tokens: big enough for a page of messages, small enough that a few calls don't
+# crowd out the conversation.
+MAX_RESULT_CHARS = 24_000
 
 TIME_PATTERN = re.compile(
     r"(\d{4})-(\d{2})(?:-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?)?"
