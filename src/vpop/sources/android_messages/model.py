@@ -60,6 +60,11 @@ def thread_key(raw_address: str | None) -> str:
     return ",".join(sorted(parts))
 
 
+def normalize_thread(key: str) -> str:
+    """Accept a thread key in any phone format, with or without spaces after commas."""
+    return thread_key(key.strip())
+
+
 def local_timestamp(epoch_ms: int) -> str:
     """
     An epoch-milliseconds time as `YYYY-MM-DD HH:MM:SS` in the machine's local time zone.

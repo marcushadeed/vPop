@@ -2,7 +2,7 @@
 
 import pytest
 
-from vpop.assistant.toolbox import Toolbox, ToolError, Toolset
+from vpop.tools.toolbox import Toolbox, ToolError, Toolset, time_range
 
 
 class Weather(Toolset):
@@ -51,3 +51,21 @@ def test_tool_errors_reach_the_model() -> None:
 def test_duplicate_tool_names_are_rejected() -> None:
     with pytest.raises(ValueError, match="'forecast'"):
         Toolbox([Weather(), Weather()])
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("2024-02", ("2024-02-01 00:00:00", "2024-02-29 23:59:59")),
+        ("2026-08-01", ("2026-08-01 00:00:00", "2026-08-01 23:59:59")),
+        ("2026-08-01 14:30", ("2026-08-01 14:30:00", "2026-08-01 14:30:59")),
+        ("2026-08-01T14:30:05", ("2026-08-01 14:30:05", "2026-08-01 14:30:05")),
+    ],
+)
+def test_time_range(value: str, expected: tuple[str, str]) -> None:
+    assert time_range(value, "since") == expected
+
+
+def test_time_range_rejects_impossible_dates() -> None:
+    with pytest.raises(ValueError, match="must look like"):
+        time_range("2026-02-30", "since")

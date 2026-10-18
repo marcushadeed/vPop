@@ -2,13 +2,26 @@
 
 import sqlite3
 from collections.abc import Sequence
-from pathlib import Path
 
-from vpop.assistant.toolbox import Toolset
-from vpop.db import check_readable
 from vpop.paths import whatsapp_raw_dir
-from vpop.sources.base import SyncedSource
+from vpop.sources.base import Store, SyncedSource
 from vpop.sources.google import DRIVE_READONLY
+from vpop.sources.message_queries import MessageStore
+from vpop.sources.whatsapp.model import normalize_chat
+
+MESSAGES = MessageStore(
+    prefix="whatsapp",
+    description="WhatsApp messages",
+    table="whatsapp_messages",
+    key="chat_key",
+    normalize_key=normalize_chat,
+    normalize_sender=normalize_chat,
+    conversations="whatsapp_chats",
+    name_match="label LIKE ? ESCAPE '\\'",
+    # A 1:1 chat's label is the person's name from their text thread, or their number.
+    names="SELECT chat_key, label FROM whatsapp_chats WHERE NOT is_group AND label != ''",
+    is_group="is_group",
+)
 
 
 class WhatsApp(SyncedSource):
@@ -38,9 +51,5 @@ class WhatsApp(SyncedSource):
         files, added = sync.import_latest(conn, whatsapp_raw_dir())
         return f"{files} WhatsApp file(s) imported, {added} new WhatsApp messages"
 
-    def toolsets(self, db: Path) -> list[Toolset]:
-        # pylint: disable=import-outside-toplevel
-        from vpop.sources.whatsapp.tools import WhatsAppTools
-
-        check_readable(db)
-        return [WhatsAppTools(db)]
+    def stores(self) -> list[Store]:
+        return [MESSAGES]

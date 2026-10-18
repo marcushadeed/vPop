@@ -1,18 +1,23 @@
 """
-The queries the text message and WhatsApp tools share, over a table with `timestamp`,
-`epoch_ms`, `direction`, `sender` and `body` columns, a conversation key column, and an
-FTS5 index on `body` named `<table>_fts`: building a search's filters, reading a page of
-matches, and reading a window of one conversation.
+How a message source's tables are read: a `MessageStore` names a messages table (with
+`timestamp`, `epoch_ms`, `direction`, `sender`, `body` and `attachments` columns, a
+conversation key column, and an FTS5 index on `body` named `<table>_fts`) and its
+conversations table, and builds the queries the message tools run over it: a search's
+filters, its matches in columns every source shares, and a window of one conversation.
 """
 
 import re
 from collections.abc import Callable, Sequence
+from contextlib import closing
 from dataclasses import dataclass
+from pathlib import Path
 from sqlite3 import Connection
-from typing import Any, NamedTuple
+from typing import Any, ClassVar, NamedTuple
 
-from vpop.assistant.toolbox import fts_query, like_pattern, time_range
+from vpop.db import connect_readonly
 from vpop.sources.android_messages.model import Direction, normalize_address
+from vpop.sources.base import Store
+from vpop.tools.toolbox import fts_query, like_pattern, time_range
 
 Params = list[str | int]
 # Rows hold whatever columns the tool selects.
@@ -57,14 +62,63 @@ class Window(NamedTuple):
     later: int
 
 
-@dataclass(frozen=True)
-class MessageTable:
-    """A messages table, its conversation key column, and how keys and senders are given."""
+# The columns `MessageStore.matches` selects, the same for every source.
+MATCH_COLUMNS = (
+    "source, conversation, timestamp, epoch_ms, direction, was_sent, sender, body, "
+    "attachments, rid"
+)
 
+
+@dataclass(frozen=True)
+class MessageStore(Store):  # pylint: disable=too-many-instance-attributes
+    """
+    One source's messages. Its conversations are named `<prefix>:<key>` to the model, e.g.
+    `text:+12405551234`, so an id says which source to read.
+    """
+
+    kind: ClassVar[str] = "messages"
+
+    # The source's name in conversation ids and the `source` filter, e.g. "text".
+    prefix: str
+    # What the messages are, e.g. "text messages".
+    description: str
+    # The messages table and its conversation key column.
     table: str
     key: str
+    # How a conversation key and a sender are given in any form, e.g. a phone number.
     normalize_key: Callable[[str], str]
     normalize_sender: Callable[[str], str]
+    # The conversations table: `key`, `label`, `message_count`, `first` and `last`.
+    conversations: str
+    # A condition on the conversations table matching a name, with one LIKE pattern.
+    name_match: str
+    # A query of (key, name) pairs, naming the senders of group messages.
+    names: str
+    # SQL on the conversations table: whether a conversation is a group.
+    is_group: str = "0"
+    # SQL on the messages table: 0 for an outgoing message that never went out.
+    was_sent: str = "1"
+
+    def summary(self, db: Path) -> str:
+        with closing(connect_readonly(db)) as conn:
+            count, first, last = conn.execute(
+                f"SELECT COUNT(*), MIN(timestamp), MAX(timestamp) FROM {self.table}"
+            ).fetchone()
+        return f"{count:,} messages, {first} → {last}" if count else "no messages"
+
+    def has_messages(self, conn: Connection) -> bool:
+        """Whether a sync has imported any of this source's messages."""
+        return bool(
+            conn.execute(f"SELECT EXISTS (SELECT 1 FROM {self.table})").fetchone()[0]
+        )
+
+    def matches(self, where: str) -> str:
+        """A query for the messages `where` selects, in the `MATCH_COLUMNS` every source has."""
+        return (
+            f"SELECT '{self.prefix}' AS source, {self.key} AS conversation, timestamp, "
+            f"epoch_ms, direction, {self.was_sent} AS was_sent, sender, body, attachments, "
+            f"rowid AS rid FROM {self.table} {where}"
+        )
 
     def filters(  # pylint: disable=too-many-arguments
         self,
@@ -111,27 +165,6 @@ class MessageTable:
         clauses += times
         params += time_params
         return (f"WHERE {' AND '.join(clauses)}" if clauses else ""), params
-
-    def page(  # pylint: disable=too-many-arguments
-        self,
-        conn: Connection,
-        columns: str,
-        where: str,
-        params: Params,
-        *,
-        limit: int,
-        offset: int,
-    ) -> tuple[int, list[Row]]:
-        """How many messages match, and a page of them (`columns`), newest first."""
-        total = conn.execute(
-            f"SELECT COUNT(*) FROM {self.table} {where}", params
-        ).fetchone()[0]
-        rows = conn.execute(
-            f"SELECT {columns} FROM {self.table} {where} "
-            "ORDER BY epoch_ms DESC, rowid DESC LIMIT ? OFFSET ?",
-            (*params, limit, offset),
-        ).fetchall()
-        return int(total), rows
 
     def window(  # pylint: disable=too-many-arguments,too-many-locals
         self,

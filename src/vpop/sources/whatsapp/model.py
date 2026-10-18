@@ -41,6 +41,12 @@ def address(jid: str, lid_to_phone: Mapping[str, str]) -> str:
     return jid
 
 
+def normalize_chat(key: str) -> str:
+    """Accept a chat key as given, or a phone number in any format."""
+    key = key.strip()
+    return key.lower() if "@" in key else normalize_address(key)
+
+
 class WhatsAppMessage(NamedTuple):
     """
     One stored WhatsApp message. Mirrors the `whatsapp_messages` table.

@@ -2,13 +2,30 @@
 
 import sqlite3
 from collections.abc import Sequence
-from pathlib import Path
 
-from vpop.assistant.toolbox import Toolset
-from vpop.db import check_readable
 from vpop.paths import android_messages_raw_dir
-from vpop.sources.base import SyncedSource
+from vpop.sources.android_messages.model import normalize_address, normalize_thread
+from vpop.sources.base import Store, SyncedSource
 from vpop.sources.google import DRIVE_READONLY
+from vpop.sources.message_queries import MessageStore
+
+MESSAGES = MessageStore(
+    prefix="text",
+    description="text messages",
+    table="messages",
+    key="thread_key",
+    normalize_key=normalize_thread,
+    normalize_sender=normalize_address,
+    conversations="threads",
+    name_match="thread_key IN (SELECT thread_key FROM messages "
+    "WHERE contact_name LIKE ? ESCAPE '\\')",
+    # Group messages carry only the sender's number; their 1:1 thread names them.
+    names="SELECT thread_key, label FROM threads "
+    "WHERE thread_key NOT LIKE '%,%' AND label != ''",
+    # A group is a list of numbers, or an RCS group's id.
+    is_group="thread_key LIKE '%,%' OR thread_key LIKE '%@%'",
+    was_sent="was_sent",
+)
 
 
 class AndroidMessages(SyncedSource):
@@ -37,9 +54,5 @@ class AndroidMessages(SyncedSource):
         files, added = sync.import_backups(conn, android_messages_raw_dir())
         return f"{files} file(s) imported, {added} new messages"
 
-    def toolsets(self, db: Path) -> list[Toolset]:
-        # pylint: disable=import-outside-toplevel
-        from vpop.sources.android_messages.tools import MessageTools
-
-        check_readable(db)
-        return [MessageTools(db)]
+    def stores(self) -> list[Store]:
+        return [MESSAGES]

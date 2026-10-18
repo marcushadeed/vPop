@@ -2,10 +2,11 @@
 What a data source is.
 
 A source is either *synced*, copied to disk by `vpop sync` (its raw files are the source of
-truth and the database is derived from them, so it can be rebuilt), or *live*, read through
-its API while a question is answered, with nothing stored. Either way it gives the assistant
-a `Toolset` of read-only tools. To add a source, subclass `Source` (or `SyncedSource`) and add
-it to `vpop.sources.registry.SOURCES`.
+truth and the database is derived from them, so it can be rebuilt), or *live*, read where it
+lives while a question is answered, with nothing stored. Either way it describes its data as
+`Store`s, each of one kind (messages, for now): the tools are by kind, so one search covers
+every source of that kind. To add a source, subclass `Source` (or `SyncedSource`) and add it
+to `vpop.sources.registry.SOURCES`.
 """
 
 import sqlite3
@@ -14,17 +15,27 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import ClassVar
 
-from vpop.assistant.toolbox import Toolset
 from vpop.config import Config
-from vpop.sources import SourceError
 
 
-class SourceUnavailable(SourceError):
-    """A source can't be queried right now. The message says why, and what to do."""
+class Store(ABC):  # pylint: disable=too-few-public-methods
+    """
+    Where one source keeps one kind of data, as the tools of that kind read it. Subclasses
+    set `kind`, and the tools for that kind take a list of them.
+    """
+
+    kind: ClassVar[str]
+
+    @abstractmethod
+    def summary(self, db: Path) -> str:
+        """
+        What the source holds, for `list_sources`, e.g. `1,234 messages, 2019-03-01 08:00:00
+        → 2026-10-18 09:12:00`. Raises `DatabaseError` if the database isn't usable.
+        """
 
 
 class Source(ABC):
-    """A place the user's data lives, and how the assistant reads it."""
+    """A place the user's data lives, and how the tools read it."""
 
     # The source's config section, e.g. "android_messages".
     name: ClassVar[str]
@@ -39,11 +50,8 @@ class Source(ABC):
         """Whether the config turns this source on."""
 
     @abstractmethod
-    def toolsets(self, db: Path) -> list[Toolset]:
-        """
-        The tools for one conversation; `db` is the database synced sources import into.
-        Raises `SourceUnavailable` (or `DatabaseError`) when the source can't be queried now.
-        """
+    def stores(self) -> list[Store]:
+        """The source's data, one store per kind."""
 
 
 class SyncedSource(Source):

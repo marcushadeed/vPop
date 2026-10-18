@@ -7,11 +7,13 @@ from pathlib import Path
 from typing import Any
 
 from vpop import db
-from vpop.assistant.sql_tools import SqlTools
-from vpop.assistant.toolbox import Toolbox
+from vpop.sources.android_messages import source as android_messages
 from vpop.sources.android_messages.model import Direction, Message
 from vpop.sources.android_messages.store import insert_messages
-from vpop.sources.android_messages.tools import MessageTools
+from vpop.sources.whatsapp import source as whatsapp
+from vpop.tools.messages import MessageTools
+from vpop.tools.sql import SqlTools
+from vpop.tools.toolbox import Toolbox
 
 SAM = "+12405551234"
 
@@ -49,6 +51,10 @@ def build_db(path: Path, messages: Iterable[Message]) -> Path:
     return path
 
 
+# Every message source's store, as when WhatsApp is enabled.
+MESSAGE_STORES = [android_messages.MESSAGES, whatsapp.MESSAGES]
+
+
 def message_toolbox(path: Path) -> Toolbox:
-    """The tools a messages-only setup gets: the message tools and run_sql."""
-    return Toolbox([MessageTools(path), SqlTools(path)])
+    """The message tools over every message source, and run_sql."""
+    return Toolbox([MessageTools(path, MESSAGE_STORES), SqlTools(path)])

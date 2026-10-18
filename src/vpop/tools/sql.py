@@ -4,7 +4,7 @@ import sqlite3
 import time
 from contextlib import closing
 
-from vpop.assistant.toolbox import MAX_LIMIT, DatabaseToolset, clamp_limit, one_line
+from vpop.tools.toolbox import MAX_LIMIT, DatabaseToolset, clamp_limit, one_line
 
 SQL_CELL_CHARS = 300
 SQL_TIMEOUT_SECONDS = 5.0

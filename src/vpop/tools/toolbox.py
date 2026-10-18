@@ -182,15 +182,9 @@ def tool_schema(func: Callable[..., str]) -> dict[str, Any]:
 
 
 class Toolset:  # pylint: disable=too-few-public-methods
-    """
-    A group of tools from one source. Subclasses name their tool methods in `tool_names`,
-    describe their data in `data` (for the prompt's first line, empty to leave it out) and
-    say how to use the tools in `prompt`, their section of the system prompt.
-    """
+    """A group of tools. Subclasses name their tool methods in `tool_names`."""
 
     tool_names: ClassVar[tuple[str, ...]] = ()
-    data: ClassVar[str] = ""
-    prompt: ClassVar[str] = ""
 
     @property
     def functions(self) -> dict[str, Callable[..., str]]:
