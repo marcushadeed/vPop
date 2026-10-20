@@ -2,6 +2,9 @@
 
 import argparse
 import logging
+import os
+import shlex
+import subprocess
 import sys
 
 from vpop.config import (
@@ -76,13 +79,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="don't download new backups, only import what's already downloaded",
     )
 
-    config = commands.add_parser("config", help="write or show the config file")
+    config = commands.add_parser("config", help="write, show or edit the config file")
     config_actions = config.add_subparsers(dest="config_command", required=True)
     init = config_actions.add_parser("init", help="write a default config file")
     init.add_argument(
         "--force", action="store_true", help="overwrite an existing config file"
     )
     config_actions.add_parser("show", help="print the settings in effect")
+    config_actions.add_parser(
+        "edit",
+        help="open the config file in $VISUAL or $EDITOR (vi if neither is set)",
+    )
+    config_actions.add_parser("path", help="print where the config file is")
 
     auth = commands.add_parser("auth", help="set up Google access")
     auth_actions = auth.add_subparsers(dest="auth_command", required=True)
@@ -207,14 +215,36 @@ def mcp_command(_: argparse.Namespace) -> None:
     serve(load_or_exit())
 
 
+def edit_config() -> None:
+    """Open the config file in the user's editor (writing it first if needed), then check it."""
+    path = config_path()
+    if not path.exists():
+        write_default_config(path)
+    editor = shlex.split(os.environ.get("VISUAL") or os.environ.get("EDITOR") or "vi")
+    try:
+        result = subprocess.run([*editor, str(path)], check=False)
+    except FileNotFoundError as exc:
+        raise SystemExit(
+            f"error: editor not found: {editor[0]} (set $VISUAL or $EDITOR)"
+        ) from exc
+    if result.returncode != 0:
+        raise SystemExit(f"error: {editor[0]} exited with status {result.returncode}")
+    # Report a bad edit now, rather than on the timer's next sync.
+    load_or_exit()
+
+
 def config_command(args: argparse.Namespace) -> None:
-    """Write a default config file, or print the settings in effect."""
+    """Write, edit or locate the config file, or print the settings in effect."""
     if args.config_command == "init":
         try:
             path = write_default_config(force=args.force)
         except FileExistsError as exc:
             raise SystemExit(str(exc)) from exc
         print(f"wrote {path}")
+    elif args.config_command == "edit":
+        edit_config()
+    elif args.config_command == "path":
+        print(config_path())
     else:
         config = load_or_exit()
         print(f"# from {config_path()}")

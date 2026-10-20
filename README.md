@@ -85,6 +85,7 @@ While the OAuth consent screen is in *Testing*, Google expires its tokens after 
 git clone https://github.com/marcushadeed/vPop.git && cd vPop
 uv tool install .        # puts `vpop` on your PATH, for Claude Code and the timer
 vpop config init         # writes ~/.config/vpop/config.toml with every setting documented
+vpop config edit         # opens it in $VISUAL or $EDITOR
 ```
 
 Put the Drive folders' ids (the end of each folder's URL, `https://drive.google.com/drive/folders/<id>`) in the config:
@@ -169,6 +170,8 @@ vpop schedule status       # the next run, and each source's last sync
 vpop schedule remove       # stop the timer and delete it
 
 vpop config show           # the settings in effect
+vpop config edit           # open the config file in your editor
+vpop config path           # where the config file is
 vpop auth google           # grant read-only Google access (opens a browser)
 vpop mcp                   # the MCP server; Claude Code starts it
 ```

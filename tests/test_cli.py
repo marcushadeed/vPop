@@ -50,6 +50,38 @@ def test_bad_config_is_reported(capsys: pytest.CaptureFixture[str]) -> None:
     assert code == 1 and "bad config" in err and "must be bool" in err
 
 
+def test_config_path_prints_the_location(capsys: pytest.CaptureFixture[str]) -> None:
+    code, out, _ = run(capsys, "config", "path")
+    assert code == 0 and out == f"{config_path()}\n"
+    assert not config_path().exists()
+
+
+def test_config_edit_creates_and_opens_the_file(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("VISUAL", "true")
+    code, _, _ = run(capsys, "config", "edit")
+    assert code == 0 and "[whatsapp]\n# " in config_path().read_text()
+
+
+def test_config_edit_reports_a_bad_edit(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(
+        "VISUAL", """sh -c 'printf "[whatsapp]\\nenabled = 1\\n" > "$1"' sh"""
+    )
+    code, _, err = run(capsys, "config", "edit")
+    assert code == 1 and "bad config" in err and "must be bool" in err
+
+
+def test_config_edit_without_an_editor(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("VISUAL", "no-such-editor-xyz")
+    code, _, err = run(capsys, "config", "edit")
+    assert code == 1 and "editor not found: no-such-editor-xyz" in err
+
+
 def test_sync_without_folder_explains(capsys: pytest.CaptureFixture[str]) -> None:
     code, _, err = run(capsys, "sync")
     assert code == 1
